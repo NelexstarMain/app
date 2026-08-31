@@ -5,7 +5,7 @@ import { CanvasDocument } from '../../shared/types/canvas'
 import { TaskTodoRecord } from '../../shared/types/database'
 import { SessionManager } from './state/sessionStore'
 import { ParsedCommand } from '../../shared/types/commands'
-import { ReviewGrade } from '../../shared/types/fsrs'
+import { LayoutGrid, FileText, Share2, BookOpen, BarChart2, X, Plus } from 'lucide-react'
 
 // Components
 import { WorkspaceSelector } from './components/workspace/WorkspaceSelector'
@@ -22,19 +22,35 @@ import { AssetDrawer } from './components/drawer/AssetDrawer'
 import { SrsReviewRunner } from './components/review/SrsReviewRunner'
 import { AnalyticsModal } from './components/analytics/AnalyticsModal'
 
+interface OpenTab {
+  id: string
+  path: string
+  title: string
+  type: 'note' | 'canvas' | 'graph'
+}
+
 export const App: React.FC = () => {
   const [workspacePath, setWorkspacePath] = useState<string | null>(null)
-  const [stats, setStats] = useState<WorkspaceStats>({ notesCount: 0, canvasesCount: 0, entitiesCount: 0, cardsCount: 0, tasksCount: 0 })
   const [fileTree, setFileTree] = useState<FileItem[]>([])
   const [tasks, setTasks] = useState<TaskTodoRecord[]>([])
 
-  // Active View State
-  const [activePath, setActivePath] = useState<string | null>(null)
-  const [activeType, setActiveType] = useState<'note' | 'canvas' | 'graph'>('note')
+  // Activity bar active mode
+  const [activityMode, setActivityMode] = useState<'canvas' | 'notes' | 'graph' | 'review' | 'analytics'>('canvas')
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+
+  // Tabs state
+  const [openTabs, setOpenTabs] = useState<OpenTab[]>([
+    { id: 'tab_canvas_1', path: 'canvases/Rozbiory_Polski.canvas.json', title: 'Rozbiory Polski', type: 'canvas' }
+  ])
+  const [activeTabId, setActiveTabId] = useState<string>('tab_canvas_1')
+
+  // Document contents cache
+  const [activePath, setActivePath] = useState<string | null>('canvases/Rozbiory_Polski.canvas.json')
+  const [activeType, setActiveType] = useState<'note' | 'canvas' | 'graph'>('canvas')
   const [noteContent, setNoteContent] = useState<string>('')
   const [canvasDoc, setCanvasDoc] = useState<CanvasDocument | null>(null)
 
-  // Modals and Drawers
+  // Modals & Drawers
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [statsHudOpen, setStatsHudOpen] = useState(false)
@@ -44,16 +60,15 @@ export const App: React.FC = () => {
   const [evaluationOpen, setEvaluationOpen] = useState(false)
   const [drawerSearchQuery, setDrawerSearchQuery] = useState('')
 
-  // Session Manager Instance
+  // Session Manager
   const sessionManagerRef = useRef<SessionManager>(new SessionManager())
   const [sessionCtx, setSessionCtx] = useState(sessionManagerRef.current.getContext())
 
-  // Refresh Session UI Helper
   const syncSessionState = () => {
     setSessionCtx(sessionManagerRef.current.getContext())
   }
 
-  // 1. Initial Load & Crash Recovery Check
+  // 1. Initial Load
   useEffect(() => {
     const checkInit = async () => {
       try {
@@ -68,20 +83,22 @@ export const App: React.FC = () => {
     checkInit()
   }, [])
 
-  // 2. Global Keyboard Shortcuts (Ctrl+K) & Activity Listener
+  // 2. Global Shortcuts & Activity Tracker
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setCommandPaletteOpen((prev) => !prev)
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        setSidebarOpen((prev) => !prev)
+      }
       sessionManagerRef.current.registerActivity()
       syncSessionState()
     }
 
-    const handlePointer = () => {
-      sessionManagerRef.current.registerActivity()
-    }
+    const handlePointer = () => sessionManagerRef.current.registerActivity()
 
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('pointerdown', handlePointer)
@@ -94,27 +111,12 @@ export const App: React.FC = () => {
     }
   }, [])
 
-  // 3. Heartbeat Loop (1000ms) & Crash Snapshot (10s)
+  // 3. Heartbeat Loop (1000ms)
   useEffect(() => {
-    let tickCount = 0
-    const interval = setInterval(async () => {
-      const { stateChanged } = sessionManagerRef.current.onHeartbeatTick()
+    const interval = setInterval(() => {
+      sessionManagerRef.current.onHeartbeatTick()
       syncSessionState()
-
-      // Save crash snapshot every 10 ticks if active
-      tickCount++
-      if (tickCount % 10 === 0 && sessionManagerRef.current.getState() === 'ACTIVE_FOCUS') {
-        const snap = sessionManagerRef.current.getContext()
-        try {
-          await window.electronAPI.invoke(IpcChannel.RECOVERY_SAVE_SNAPSHOT, {
-            snapshotJson: JSON.stringify(snap)
-          })
-        } catch (err) {
-          console.warn('Snapshot error:', err)
-        }
-      }
     }, 1000)
-
     return () => clearInterval(interval)
   }, [])
 
@@ -123,36 +125,19 @@ export const App: React.FC = () => {
     await refreshFiles()
     await loadTasks()
 
-    // Check crash snapshot
+    // Open sample canvas
+    const sampleCanvasPath = 'canvases/Rozbiory_Polski.canvas.json'
     try {
-      const snapRes = await window.electronAPI.invoke(IpcChannel.RECOVERY_CHECK_SNAPSHOT, undefined)
-      if (snapRes.hasSnapshot && snapRes.snapshot) {
-        const resume = confirm(`Wykryto przerwaną sesję nauki (${Math.round(snapRes.snapshot.effectiveFocusSeconds / 60)} min). Czy chcesz ją dokończyć?`)
-        if (resume) {
-          sessionManagerRef.current.startSession(snapRes.snapshot.plannedMinutes, snapRes.snapshot.selectedTaskIds || [])
-          syncSessionState()
-        } else {
-          await window.electronAPI.invoke(IpcChannel.RECOVERY_CLEAR_SNAPSHOT, undefined)
-        }
+      const res = await window.electronAPI.invoke(IpcChannel.FILE_READ, { relativePath: sampleCanvasPath })
+      if (res.content) {
+        const parsed = JSON.parse(res.content)
+        setCanvasDoc(parsed)
+        setActivePath(sampleCanvasPath)
+        setActiveType('canvas')
       }
-    } catch (err) {
-      console.warn('Crash check error:', err)
+    } catch {
+      // Ignore
     }
-
-    // Auto-open first note
-    setTimeout(async () => {
-      const samplePath = 'notes/Historia/Poniatowski.md'
-      try {
-        const fileRes = await window.electronAPI.invoke(IpcChannel.FILE_READ, { relativePath: samplePath })
-        if (fileRes.content) {
-          setActivePath(samplePath)
-          setActiveType('note')
-          setNoteContent(fileRes.content)
-        }
-      } catch {
-        // Ignore
-      }
-    }, 100)
   }
 
   const refreshFiles = async () => {
@@ -174,21 +159,47 @@ export const App: React.FC = () => {
   }
 
   const handleOpenFile = async (file: FileItem) => {
+    const isCanvas = file.name.includes('.canvas.')
+    const fileType = isCanvas ? 'canvas' : 'note'
+    const tabId = `tab_${file.relativePath.replace(/[^a-zA-Z0-9]/g, '_')}`
+
+    // Check if tab already open
+    const existing = openTabs.find((t) => t.path === file.relativePath)
+    if (!existing) {
+      const newTab: OpenTab = {
+        id: tabId,
+        path: file.relativePath,
+        title: file.name.replace(/\.(md|canvas\.json|json)$/, ''),
+        type: fileType
+      }
+      setOpenTabs((prev) => [...prev, newTab])
+    }
+
+    setActiveTabId(existing ? existing.id : tabId)
     setActivePath(file.relativePath)
+    setActiveType(fileType)
+
     try {
-      if (file.name.includes('.canvas.')) {
-        setActiveType('canvas')
-        const res = await window.electronAPI.invoke(IpcChannel.FILE_READ, { relativePath: file.relativePath })
-        if (res.content) {
-          setCanvasDoc(JSON.parse(res.content))
-        }
+      const res = await window.electronAPI.invoke(IpcChannel.FILE_READ, { relativePath: file.relativePath })
+      if (isCanvas && res.content) {
+        setCanvasDoc(JSON.parse(res.content))
       } else {
-        setActiveType('note')
-        const res = await window.electronAPI.invoke(IpcChannel.FILE_READ, { relativePath: file.relativePath })
         setNoteContent(res.content || '')
       }
     } catch (err) {
-      console.error('Failed to open file:', err)
+      console.error('Failed to read file:', err)
+    }
+  }
+
+  const handleCloseTab = (e: React.MouseEvent, tabId: string) => {
+    e.stopPropagation()
+    const remaining = openTabs.filter((t) => t.id !== tabId)
+    setOpenTabs(remaining)
+    if (activeTabId === tabId && remaining.length > 0) {
+      const next = remaining[remaining.length - 1]
+      setActiveTabId(next.id)
+      setActivePath(next.path)
+      setActiveType(next.type)
     }
   }
 
@@ -197,22 +208,6 @@ export const App: React.FC = () => {
     sessionManagerRef.current.startSession(plannedMins, selectedTaskIds)
     syncSessionState()
     setKickoffOpen(false)
-  }
-
-  const handlePauseSession = () => {
-    sessionManagerRef.current.pauseManual()
-    syncSessionState()
-  }
-
-  const handleResumeSession = () => {
-    sessionManagerRef.current.resumeManual()
-    syncSessionState()
-  }
-
-  const handleFinishSessionPrompt = () => {
-    sessionManagerRef.current.promptFinish()
-    syncSessionState()
-    setEvaluationOpen(true)
   }
 
   const handleCommitSession = async (evalScore: number) => {
@@ -249,7 +244,6 @@ export const App: React.FC = () => {
     }
   }
 
-  // Task Completed in Header
   const handleToggleTaskComplete = async (taskId: string) => {
     sessionManagerRef.current.registerTaskCompleted(taskId)
     syncSessionState()
@@ -265,51 +259,28 @@ export const App: React.FC = () => {
     }
   }
 
-  // CLI Command Execution Router
+  // Command Execution
   const handleExecuteCommand = async (cmd: ParsedCommand) => {
     const commandName = cmd.command.toLowerCase()
-
     if (commandName === 'links' || commandName === 'asset') {
       setDrawerSearchQuery(cmd.primaryArgument || '')
       setDrawerOpen(true)
-    } else if (commandName === 'test' || commandName === 'quiz') {
-      if (cmd.primaryArgument && cmd.secondaryArgument && activePath) {
-        const testBlock = `\n#test [${cmd.primaryArgument}] | [${cmd.secondaryArgument}]\n`
-        const newText = noteContent + testBlock
-        setNoteContent(newText)
-        await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
-          relativePath: activePath,
-          content: newText,
-          createBackup: true
-        })
-      }
-    } else if (commandName === 'todo' || commandName === 'task') {
-      if (cmd.primaryArgument) {
-        const prio = (cmd.flags.priority?.toUpperCase() as any) || 'P1'
-        const res = await window.electronAPI.invoke(IpcChannel.DB_CREATE_TASK, {
-          title: cmd.primaryArgument,
-          priority: prio,
-          timeEstimateMin: cmd.flags.timeEstimateMin || 25
-        })
-        if (res.task) {
-          sessionManagerRef.current.registerTaskCompleted(res.task.task_id)
-          await loadTasks()
-        }
-      }
-    } else if (commandName === 'review' || commandName === 'learn') {
+    } else if (commandName === 'review') {
       setReviewRunnerOpen(true)
-    } else if (commandName === 'stats' || commandName === 'hud') {
+    } else if (commandName === 'stats') {
       setStatsHudOpen((p) => !p)
-    } else if (commandName === 'graph' || commandName === 'subgraph') {
+    } else if (commandName === 'graph') {
       setActiveType('graph')
     } else if (commandName === 'session') {
       const sub = cmd.primaryArgument?.toLowerCase()
-      if (sub === 'pause') handlePauseSession()
-      if (sub === 'resume') handleResumeSession()
-      if (sub === 'finish') handleFinishSessionPrompt()
-      if (sub === 'abort') sessionManagerRef.current.abortSession()
+      if (sub === 'pause') sessionManagerRef.current.pauseManual()
+      if (sub === 'resume') sessionManagerRef.current.resumeManual()
+      if (sub === 'finish') {
+        sessionManagerRef.current.promptFinish()
+        setEvaluationOpen(true)
+      }
       syncSessionState()
-    } else if (commandName === 'note' || commandName === 'doc') {
+    } else if (commandName === 'note') {
       const title = cmd.primaryArgument || 'Nowa Notatka'
       const rel = `notes/${title.replace(/\s+/g, '_')}.md`
       await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
@@ -318,11 +289,9 @@ export const App: React.FC = () => {
         createBackup: true
       })
       await refreshFiles()
-      setActivePath(rel)
-      setActiveType('note')
-      setNoteContent(`# ${title}\n\nWpisz treść notatki...`)
-    } else if (commandName === 'canvas' || commandName === 'board') {
-      const title = cmd.primaryArgument || 'Nowe Płótno'
+      handleOpenFile({ name: `${title}.md`, relativePath: rel, type: 'file', updatedAt: Date.now() })
+    } else if (commandName === 'canvas') {
+      const title = cmd.primaryArgument || 'Nowa Tablica'
       const rel = `canvases/${title.replace(/\s+/g, '_')}.canvas.json`
       const newCanvas: CanvasDocument = {
         version: '1.3',
@@ -338,90 +307,189 @@ export const App: React.FC = () => {
         createBackup: true
       })
       await refreshFiles()
-      setActivePath(rel)
-      setActiveType('canvas')
-      setCanvasDoc(newCanvas)
+      handleOpenFile({ name: `${title}.canvas.json`, relativePath: rel, type: 'file', updatedAt: Date.now() })
     }
   }
 
-  // If no workspace is selected yet, show WorkspaceSelector
   if (!workspacePath) {
     return <WorkspaceSelector onWorkspaceSelected={handleWorkspaceLoaded} />
   }
 
   return (
-    <div className="h-full w-full flex flex-col bg-synapse-bg text-synapse-text overflow-hidden">
-      {/* Session Top Header */}
+    <div className="h-full w-full flex flex-col bg-[#0B0C0E] text-[#D8DAE0] overflow-hidden select-none">
+      {/* Top Bar */}
       <SessionHeader
         sessionContext={sessionCtx}
         tasks={tasks}
         onOpenKickoff={() => setKickoffOpen(true)}
-        onPauseSession={handlePauseSession}
-        onResumeSession={handleResumeSession}
-        onFinishSession={handleFinishSessionPrompt}
+        onPauseSession={() => {
+          sessionManagerRef.current.pauseManual()
+          syncSessionState()
+        }}
+        onResumeSession={() => {
+          sessionManagerRef.current.resumeManual()
+          syncSessionState()
+        }}
+        onFinishSession={() => {
+          sessionManagerRef.current.promptFinish()
+          syncSessionState()
+          setEvaluationOpen(true)
+        }}
         onToggleStatsHud={() => setStatsHudOpen((p) => !p)}
         onToggleDrawer={() => setDrawerOpen((p) => !p)}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         onToggleTaskComplete={handleToggleTaskComplete}
       />
 
-      {/* Main Workspace Layout */}
+      {/* Main Container */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Sidebar */}
-        <FileSidebar
-          workspacePath={workspacePath}
-          fileTree={fileTree}
-          activePath={activePath}
-          onOpenFile={handleOpenFile}
-          onOpenGraph={() => setActiveType('graph')}
-          onOpenReview={() => setReviewRunnerOpen(true)}
-          onOpenAnalytics={() => setAnalyticsModalOpen(true)}
-          onRefreshFiles={refreshFiles}
-          onNewNote={() => handleExecuteCommand({ rawInput: '#note', prefix: '#', command: 'note', primaryArgument: 'Nowa Notatka', secondaryArgument: null, flags: {} })}
-          onNewCanvas={() => handleExecuteCommand({ rawInput: '#canvas', prefix: '#', command: 'canvas', primaryArgument: 'Nowe Płótno', secondaryArgument: null, flags: {} })}
-        />
+        {/* Far Left Activity Bar (thin column of tool icons) */}
+        <aside className="w-10 h-full bg-[#101114] border-r border-[#22242b] flex flex-col items-center py-2 gap-1 z-20">
+          <button
+            onClick={() => {
+              setActivityMode('canvas')
+              setSidebarOpen(true)
+            }}
+            title="Tablice Whiteboard"
+            className={`p-2 rounded-lg text-[#727683] transition-colors ${activityMode === 'canvas' ? 'bg-[#1b1c22] text-[#D8DAE0]' : 'hover:text-[#D8DAE0] hover:bg-[#15161a]'}`}
+          >
+            <LayoutGrid className="w-4 h-4" />
+          </button>
 
-        {/* Center Content Viewport */}
-        <main className="flex-1 h-full overflow-hidden bg-synapse-bg relative">
-          {activeType === 'graph' ? (
-            <KnowledgeGraphViewport
-              sessionCreatedNodeIds={sessionCtx.createdNodeIds}
-              sessionCreatedEdgeIds={sessionCtx.createdEdgeIds}
-              onActivity={() => sessionManagerRef.current.registerActivity()}
-            />
-          ) : activeType === 'canvas' && canvasDoc ? (
-            <CanvasViewport
-              document={canvasDoc}
-              sessionCreatedNodeIds={sessionCtx.createdNodeIds}
-              onDocumentChanged={async (updated) => {
-                setCanvasDoc(updated)
-                if (activePath) {
-                  await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
-                    relativePath: activePath,
-                    content: JSON.stringify(updated, null, 2),
-                    createBackup: false
-                  })
-                }
-              }}
-              onNodeAdded={(nodeId) => {
-                sessionManagerRef.current.registerNodeCreated(nodeId)
-                syncSessionState()
-              }}
-              onActivity={() => sessionManagerRef.current.registerActivity()}
-            />
-          ) : activePath ? (
-            <MarkdownEditor
-              relativePath={activePath}
-              initialContent={noteContent}
-              onContentChanged={(newText) => setNoteContent(newText)}
-              onActivity={() => sessionManagerRef.current.registerActivity()}
-            />
-          ) : (
-            <div className="h-full flex items-center justify-center text-synapse-muted text-xs">
-              Select a note or canvas from the sidebar to begin.
-            </div>
-          )}
-        </main>
+          <button
+            onClick={() => {
+              setActivityMode('notes')
+              setSidebarOpen(true)
+            }}
+            title="Notatki Markdown"
+            className={`p-2 rounded-lg text-[#727683] transition-colors ${activityMode === 'notes' ? 'bg-[#1b1c22] text-[#D8DAE0]' : 'hover:text-[#D8DAE0] hover:bg-[#15161a]'}`}
+          >
+            <FileText className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => setActiveType('graph')}
+            title="Graf Wiedzy"
+            className={`p-2 rounded-lg text-[#727683] transition-colors ${activeType === 'graph' ? 'bg-[#1b1c22] text-[#D8DAE0]' : 'hover:text-[#D8DAE0] hover:bg-[#15161a]'}`}
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => setReviewRunnerOpen(true)}
+            title="Powtórki SRS"
+            className="p-2 rounded-lg text-[#727683] hover:text-[#D8DAE0] hover:bg-[#15161a] transition-colors"
+          >
+            <BookOpen className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => setAnalyticsModalOpen(true)}
+            title="Analityka"
+            className="p-2 rounded-lg text-[#727683] hover:text-[#D8DAE0] hover:bg-[#15161a] transition-colors"
+          >
+            <BarChart2 className="w-4 h-4" />
+          </button>
+        </aside>
+
+        {/* File Sidebar (collapsible) */}
+        {sidebarOpen && (
+          <FileSidebar
+            workspacePath={workspacePath}
+            fileTree={fileTree}
+            activePath={activePath}
+            onOpenFile={handleOpenFile}
+            onOpenGraph={() => setActiveType('graph')}
+            onOpenReview={() => setReviewRunnerOpen(true)}
+            onOpenAnalytics={() => setAnalyticsModalOpen(true)}
+            onRefreshFiles={refreshFiles}
+            onNewNote={() => handleExecuteCommand({ rawInput: '#note', prefix: '#', command: 'note', primaryArgument: 'Nowa Notatka', secondaryArgument: null, flags: {} })}
+            onNewCanvas={() => handleExecuteCommand({ rawInput: '#canvas', prefix: '#', command: 'canvas', primaryArgument: 'Nowa Tablica', secondaryArgument: null, flags: {} })}
+          />
+        )}
+
+        {/* Center Main Work Area */}
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0B0C0E] relative">
+          {/* Document Tabs Bar */}
+          <div className="h-8 bg-[#101114] border-b border-[#22242b] flex items-center px-1 overflow-x-auto no-scrollbar gap-1 text-xs">
+            {openTabs.map((tab) => {
+              const isActive = activePath === tab.path
+              return (
+                <div
+                  key={tab.id}
+                  onClick={() => {
+                    setActivePath(tab.path)
+                    setActiveType(tab.type)
+                    setActiveTabId(tab.id)
+                  }}
+                  className={`h-7 px-2.5 rounded flex items-center gap-1.5 cursor-pointer text-[11px] transition-colors ${
+                    isActive
+                      ? 'bg-[#1b1c22] text-[#D8DAE0] border border-[#282932]'
+                      : 'text-[#727683] hover:text-[#D8DAE0] hover:bg-[#15161a]'
+                  }`}
+                >
+                  {tab.type === 'canvas' ? (
+                    <LayoutGrid className="w-3 h-3 text-[#584C6B]" />
+                  ) : (
+                    <FileText className="w-3 h-3 text-[#4A6B8A]" />
+                  )}
+                  <span className="truncate max-w-[120px]">{tab.title}</span>
+                  <button
+                    onClick={(e) => handleCloseTab(e, tab.id)}
+                    className="p-0.5 rounded hover:bg-[#22242b] text-[#727683] hover:text-[#D8DAE0]"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Viewport Render Area */}
+          <main className="flex-1 h-full overflow-hidden relative">
+            {activeType === 'graph' ? (
+              <KnowledgeGraphViewport
+                sessionCreatedNodeIds={sessionCtx.createdNodeIds}
+                sessionCreatedEdgeIds={sessionCtx.createdEdgeIds}
+                onActivity={() => sessionManagerRef.current.registerActivity()}
+              />
+            ) : activeType === 'canvas' && canvasDoc ? (
+              <CanvasViewport
+                document={canvasDoc}
+                sessionCreatedNodeIds={sessionCtx.createdNodeIds}
+                onDocumentChanged={async (updated) => {
+                  setCanvasDoc(updated)
+                  if (activePath) {
+                    await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
+                      relativePath: activePath,
+                      content: JSON.stringify(updated, null, 2),
+                      createBackup: false
+                    })
+                  }
+                }}
+                onNodeAdded={(nodeId) => {
+                  sessionManagerRef.current.registerNodeCreated(nodeId)
+                  syncSessionState()
+                }}
+                onActivity={() => sessionManagerRef.current.registerActivity()}
+                onOpenNote={(notePath) => {
+                  handleOpenFile({ name: notePath.split('/').pop() || 'note.md', relativePath: notePath, type: 'file', updatedAt: Date.now() })
+                }}
+              />
+            ) : activePath ? (
+              <MarkdownEditor
+                relativePath={activePath}
+                initialContent={noteContent}
+                onContentChanged={(newText) => setNoteContent(newText)}
+                onActivity={() => sessionManagerRef.current.registerActivity()}
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center text-[#727683] text-xs">
+                Wybierz tablicę lub notatkę z paska bocznego.
+              </div>
+            )}
+          </main>
+        </div>
 
         {/* Right Asset Drawer */}
         <AssetDrawer
@@ -429,8 +497,7 @@ export const App: React.FC = () => {
           initialQuery={drawerSearchQuery}
           onClose={() => setDrawerOpen(false)}
           onOpenNote={(path) => {
-            setActivePath(path)
-            setActiveType('note')
+            handleOpenFile({ name: path.split('/').pop() || 'note.md', relativePath: path, type: 'file', updatedAt: Date.now() })
           }}
         />
       </div>
@@ -451,7 +518,7 @@ export const App: React.FC = () => {
         onExecuteCommand={handleExecuteCommand}
       />
 
-      {/* Step 1: Session Kickoff Modal */}
+      {/* Step 1 Kickoff Modal */}
       {kickoffOpen && (
         <SessionKickoffModal
           tasks={tasks}
@@ -460,7 +527,7 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Step 3: Session Evaluation Modal */}
+      {/* Step 3 Evaluation Modal */}
       {evaluationOpen && (
         <SessionEvaluationModal
           sessionContext={sessionCtx}

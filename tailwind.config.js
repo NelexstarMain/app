@@ -8,29 +8,21 @@ module.exports = {
     extend: {
       colors: {
         synapse: {
-          bg: '#0B0F19',
-          card: '#111827',
-          surface: '#1E293B',
-          border: '#334155',
-          text: '#F8FAFC',
-          muted: '#94A3B8',
-          accent: '#3B82F6',
-          emerald: '#10B981',
-          emeraldGlow: 'rgba(16, 185, 129, 0.4)',
-          cyanGlow: 'rgba(56, 189, 248, 0.4)',
-          purple: '#8B5CF6',
-          amber: '#F59E0B',
-          rose: '#F43F5E'
-        }
-      },
-      animation: {
-        'pulse-glow': 'pulseGlow 1.2s ease-in-out infinite',
-        'flowing-particle': 'particleFlow 2s linear infinite'
-      },
-      keyframes: {
-        pulseGlow: {
-          '0%, 100%': { boxShadow: '0 0 12px 2px rgba(16, 185, 129, 0.4)' },
-          '50%': { boxShadow: '0 0 24px 6px rgba(16, 185, 129, 0.8)' }
+          bg: '#0B0C0E',
+          sidebar: '#101114',
+          card: '#15161A',
+          surface: '#1B1C22',
+          border: '#22242B',
+          borderSubtle: '#18191E',
+          text: '#D8DAE0',
+          muted: '#727683',
+          dim: '#484B55',
+          accent: '#3E5C76',
+          accentMuted: '#2D3A47',
+          amberMuted: '#8C6D37',
+          emeraldMuted: '#38664B',
+          purpleMuted: '#584C6B',
+          roseMuted: '#7A3E48'
         }
       }
     }

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Play, Pause, Square, Zap, Sparkles, FolderTree, Terminal, BarChart2, CheckCircle2, Circle } from 'lucide-react'
+import { Play, Pause, Square, Terminal, BarChart2, FolderTree, CheckCircle, Circle } from 'lucide-react'
 import { SessionContext } from '../../../../shared/types/session'
 import { TaskTodoRecord } from '../../../../shared/types/database'
 
@@ -28,9 +28,11 @@ export const SessionHeader: React.FC<Props> = ({
   onOpenCommandPalette,
   onToggleTaskComplete
 }) => {
-  const isIdle = sessionContext.state === 'IDLE' || sessionContext.state === 'COMMITTED' || sessionContext.state === 'TERMINATED_ABORT'
+  const isIdle =
+    sessionContext.state === 'IDLE' ||
+    sessionContext.state === 'COMMITTED' ||
+    sessionContext.state === 'TERMINATED_ABORT'
   const isActive = sessionContext.state === 'ACTIVE_FOCUS'
-  const isPaused = sessionContext.state === 'MANUAL_PAUSED' || sessionContext.state === 'AUTO_PAUSED'
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -41,125 +43,109 @@ export const SessionHeader: React.FC<Props> = ({
   const selectedTasks = tasks.filter((t) => sessionContext.selectedTaskIds.includes(t.task_id))
 
   return (
-    <header className="h-14 bg-synapse-card border-b border-synapse-border flex items-center justify-between px-4 z-20 select-none">
-      {/* Left: Brand & Focus Engine State */}
+    <header className="h-10 bg-[#101114] border-b border-[#22242b] flex items-center justify-between px-3 z-20 select-none text-xs">
+      {/* Left: App Title & Focus Timer */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 font-bold text-sm">
-            CC
+        <div className="font-semibold text-[#D8DAE0] flex items-center gap-2">
+          <div className="w-4 h-4 rounded bg-[#22242b] border border-[#2d2f38] flex items-center justify-center text-[10px] font-bold text-[#D8DAE0]">
+            C
           </div>
-          <span className="font-bold text-sm text-white tracking-wide">
-            CogniCanvas <span className="text-emerald-400 font-mono text-xs">v1.3</span>
-          </span>
+          <span className="text-[12px] font-medium tracking-tight">CogniCanvas</span>
         </div>
 
-        {/* Focus Mode Pill */}
-        <div className="h-5 w-px bg-synapse-border mx-1" />
+        <div className="h-4 w-px bg-[#22242b]" />
 
         {isIdle ? (
           <button
             onClick={onOpenKickoff}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-medium transition-all shadow-sm group"
+            className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#1b1c22] hover:bg-[#22242b] text-[#D8DAE0] text-[11px] font-medium border border-[#282932] transition-colors"
           >
-            <Play className="w-3.5 h-3.5 fill-current text-emerald-400 group-hover:scale-110 transition-transform" />
-            <span>Start Focus Session</span>
+            <Play className="w-3 h-3 fill-current text-[#38664B]" />
+            <span>Sesja Skupienia</span>
           </button>
         ) : (
-          <div className="flex items-center gap-3">
-            {/* Timer Display */}
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-lg border font-mono text-sm font-semibold tracking-wider ${
-              isActive
-                ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300 shadow-sm shadow-emerald-500/20'
-                : 'bg-amber-500/10 border-amber-500/40 text-amber-300'
-            }`}>
-              <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#1b1c22] border border-[#282932] font-mono text-[11px] text-[#D8DAE0]">
+              <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-[#38664B]' : 'bg-[#8C6D37]'}`} />
               <span>{formatTime(sessionContext.effectiveFocusSeconds)}</span>
-              <span className="text-[10px] font-normal text-synapse-muted">/ {sessionContext.plannedMinutes}m</span>
+              <span className="text-[10px] text-[#727683]">/ {sessionContext.plannedMinutes}m</span>
             </div>
 
-            {/* Session Controls */}
-            <div className="flex items-center gap-1">
-              {isActive ? (
-                <button
-                  onClick={onPauseSession}
-                  title="Pause Session"
-                  className="p-1.5 rounded-lg bg-synapse-surface hover:bg-synapse-border/80 text-synapse-muted hover:text-white transition-colors"
-                >
-                  <Pause className="w-3.5 h-3.5" />
-                </button>
-              ) : (
-                <button
-                  onClick={onResumeSession}
-                  title="Resume Session"
-                  className="p-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-colors"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                </button>
-              )}
-
+            {isActive ? (
               <button
-                onClick={onFinishSession}
-                title="Finish & Review Session"
-                className="p-1.5 rounded-lg bg-synapse-surface hover:bg-rose-500/20 text-synapse-muted hover:text-rose-400 transition-colors"
+                onClick={onPauseSession}
+                className="p-1 rounded hover:bg-[#1b1c22] text-[#727683] hover:text-[#D8DAE0]"
+                title="Pauza"
               >
-                <Square className="w-3.5 h-3.5" />
+                <Pause className="w-3 h-3" />
               </button>
-            </div>
+            ) : (
+              <button
+                onClick={onResumeSession}
+                className="p-1 rounded hover:bg-[#1b1c22] text-[#38664B]"
+                title="Wznów"
+              >
+                <Play className="w-3 h-3 fill-current" />
+              </button>
+            )}
+
+            <button
+              onClick={onFinishSession}
+              className="p-1 rounded hover:bg-[#1b1c22] text-[#727683] hover:text-[#7A3E48]"
+              title="Zakończ"
+            >
+              <Square className="w-3 h-3" />
+            </button>
           </div>
         )}
       </div>
 
-      {/* Center: Things to Do Active Tasks */}
-      <div className="flex items-center gap-2 max-w-md overflow-x-auto no-scrollbar py-1">
-        {selectedTasks.length > 0 ? (
-          selectedTasks.map((t) => {
-            const isDone = sessionContext.completedTaskIds.includes(t.task_id)
-            const prioColor = t.priority === 'P1' ? 'text-rose-400 border-rose-500/30 bg-rose-500/10' : t.priority === 'P2' ? 'text-amber-400 border-amber-500/30 bg-amber-500/10' : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-            return (
-              <button
-                key={t.task_id}
-                onClick={() => onToggleTaskComplete(t.task_id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-all shrink-0 ${prioColor} ${
-                  isDone ? 'opacity-40 line-through' : 'hover:scale-105'
-                }`}
-              >
-                {isDone ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Circle className="w-3 h-3" />}
-                <span className="truncate max-w-[140px]">{t.title}</span>
-              </button>
-            )
-          })
-        ) : (
-          <span className="text-[11px] text-synapse-muted/60 italic hidden md:inline">
-            No session tasks selected. Press <kbd className="px-1 py-0.5 rounded bg-synapse-surface text-synapse-muted font-mono">Ctrl+K</kbd> to execute commands.
-          </span>
-        )}
+      {/* Center: Active Tasks Pill */}
+      <div className="flex items-center gap-1.5 max-w-sm overflow-x-auto no-scrollbar">
+        {selectedTasks.map((t) => {
+          const isDone = sessionContext.completedTaskIds.includes(t.task_id)
+          return (
+            <button
+              key={t.task_id}
+              onClick={() => onToggleTaskComplete(t.task_id)}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] border transition-colors ${
+                isDone
+                  ? 'bg-[#1b1c22] border-[#22242b] text-[#4B4E58] line-through'
+                  : 'bg-[#15161a] border-[#282932] text-[#D8DAE0] hover:border-[#4A6B8A]'
+              }`}
+            >
+              {isDone ? <CheckCircle className="w-2.5 h-2.5 text-[#38664B]" /> : <Circle className="w-2.5 h-2.5 text-[#727683]" />}
+              <span className="truncate max-w-[120px]">{t.title}</span>
+            </button>
+          )
+        })}
       </div>
 
-      {/* Right: Quick Action Controls */}
-      <div className="flex items-center gap-2">
+      {/* Right: Quick Tools */}
+      <div className="flex items-center gap-1.5">
         <button
           onClick={onOpenCommandPalette}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-synapse-surface hover:bg-synapse-border/80 text-xs text-synapse-muted hover:text-white border border-synapse-border/50 transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#1b1c22] hover:bg-[#22242b] text-[11px] text-[#727683] hover:text-[#D8DAE0] border border-[#22242b]"
         >
-          <Terminal className="w-3.5 h-3.5 text-sky-400" />
-          <span className="font-mono text-[11px]">#command</span>
-          <kbd className="text-[9px] bg-synapse-bg/80 px-1 rounded text-synapse-muted font-mono">Ctrl+K</kbd>
+          <Terminal className="w-3 h-3 text-[#4A6B8A]" />
+          <span>Komendy</span>
+          <kbd className="text-[9px] bg-[#101114] px-1 rounded text-[#4B4E58] font-mono">Ctrl+K</kbd>
         </button>
 
         <button
           onClick={onToggleStatsHud}
-          title="Session HUD (#stats)"
-          className="p-2 rounded-lg bg-synapse-surface hover:bg-synapse-border/80 text-synapse-muted hover:text-emerald-400 transition-colors"
+          title="HUD Skupienia (#stats)"
+          className="p-1 rounded text-[#727683] hover:text-[#D8DAE0] hover:bg-[#1b1c22]"
         >
-          <BarChart2 className="w-4 h-4" />
+          <BarChart2 className="w-3.5 h-3.5" />
         </button>
 
         <button
           onClick={onToggleDrawer}
-          title="Asset & Link Drawer (#links)"
-          className="p-2 rounded-lg bg-synapse-surface hover:bg-synapse-border/80 text-synapse-muted hover:text-purple-400 transition-colors"
+          title="Panel Zasobów (#links)"
+          className="p-1 rounded text-[#727683] hover:text-[#D8DAE0] hover:bg-[#1b1c22]"
         >
-          <FolderTree className="w-4 h-4" />
+          <FolderTree className="w-3.5 h-3.5" />
         </button>
       </div>
     </header>

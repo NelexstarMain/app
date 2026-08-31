@@ -1,5 +1,5 @@
 import React from 'react'
-import { X, Clock, Share2, CheckCircle2, Award, Zap, Activity } from 'lucide-react'
+import { X, Clock, Share2, CheckCircle2 } from 'lucide-react'
 import { SessionContext, SessionDeltaSummary } from '../../../../shared/types/session'
 
 interface Props {
@@ -16,59 +16,29 @@ export const SessionStatsHud: React.FC<Props> = ({ sessionContext, deltaSummary,
   }
 
   return (
-    <div className="fixed top-16 right-4 z-40 w-72 frosted-glass rounded-2xl border border-synapse-border p-4 shadow-2xl animate-in slide-in-from-top-2 duration-200">
-      <div className="flex items-center justify-between pb-2 mb-3 border-b border-synapse-border/50">
-        <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />
-          <span className="text-xs font-bold text-white uppercase tracking-wider">Live Session HUD</span>
-        </div>
-        <button onClick={onClose} className="text-synapse-muted hover:text-white p-0.5">
-          <X className="w-3.5 h-3.5" />
+    <div className="fixed top-12 right-4 z-40 w-64 rounded-xl bg-[#141519]/95 border border-[#282932] p-3 shadow-2xl text-xs select-none">
+      <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#22242b]">
+        <span className="font-semibold text-[#D8DAE0] text-[11px]">HUD Skupienia</span>
+        <button onClick={onClose} className="text-[#727683] hover:text-[#D8DAE0]">
+          <X className="w-3 h-3" />
         </button>
       </div>
 
-      <div className="space-y-2.5 text-xs">
-        <div className="flex items-center justify-between p-2 rounded-lg bg-synapse-surface/60">
-          <span className="text-synapse-muted flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-emerald-400" />
-            Effective Focus
-          </span>
-          <span className="font-mono font-bold text-emerald-300">
-            {formatTime(sessionContext.effectiveFocusSeconds)}
-          </span>
+      <div className="space-y-1.5 text-[11px]">
+        <div className="flex items-center justify-between p-1.5 rounded bg-[#101114]">
+          <span className="text-[#727683]">Czas skupienia</span>
+          <span className="font-mono text-[#D8DAE0] font-medium">{formatTime(sessionContext.effectiveFocusSeconds)}</span>
         </div>
 
-        <div className="flex items-center justify-between p-2 rounded-lg bg-synapse-surface/60">
-          <span className="text-synapse-muted flex items-center gap-1.5">
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            Idle Accumulated
-          </span>
-          <span className="font-mono font-bold text-amber-300">
-            {formatTime(sessionContext.idleSeconds)}
-          </span>
+        <div className="flex items-center justify-between p-1.5 rounded bg-[#101114]">
+          <span className="text-[#727683]">Nowe węzły/relacje</span>
+          <span className="font-mono text-[#D8DAE0] font-medium">+{deltaSummary.nodesAdded} / +{deltaSummary.edgesAdded}</span>
         </div>
 
-        <div className="flex items-center justify-between p-2 rounded-lg bg-synapse-surface/60">
-          <span className="text-synapse-muted flex items-center gap-1.5">
-            <Share2 className="w-3.5 h-3.5 text-sky-400" />
-            Nodes / Edges Added
-          </span>
-          <span className="font-mono font-bold text-sky-300">
-            +{deltaSummary.nodesAdded} / +{deltaSummary.edgesAdded}
-          </span>
+        <div className="flex items-center justify-between p-1.5 rounded bg-[#101114]">
+          <span className="text-[#727683]">Ukończone zadania</span>
+          <span className="font-mono text-[#D8DAE0] font-medium">{deltaSummary.tasksDone}</span>
         </div>
-
-        <div className="flex items-center justify-between p-2 rounded-lg bg-synapse-surface/60">
-          <span className="text-synapse-muted flex items-center gap-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 text-purple-400" />
-            Completed Tasks
-          </span>
-          <span className="font-mono font-bold text-purple-300">{deltaSummary.tasksDone}</span>
-        </div>
-      </div>
-
-      <div className="mt-3 pt-2 border-t border-synapse-border/40 text-[10px] text-synapse-muted/70 text-center">
-        State: <span className="text-emerald-400 font-mono font-semibold">{sessionContext.state}</span>
       </div>
     </div>
   )

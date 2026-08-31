@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { X, CheckCircle2, RotateCw, BookOpen, Award, ArrowRight, Sparkles } from 'lucide-react'
+import { X, BookOpen, Award } from 'lucide-react'
 import { SrsCardRecord } from '../../../../shared/types/database'
 import { ReviewGrade } from '../../../../shared/types/fsrs'
 import { IpcChannel } from '../../../../shared/ipc/channels'
@@ -30,9 +30,7 @@ export const SrsReviewRunner: React.FC<Props> = ({ isOpen, onClose, onReviewReco
   const loadDueCards = async () => {
     try {
       const res = await window.electronAPI.invoke(IpcChannel.DB_GET_SRS_DUE, { limit: 50 })
-      if (res.cards) {
-        setCards(res.cards)
-      }
+      if (res.cards) setCards(res.cards)
     } catch (err) {
       console.error('Failed to fetch due SRS cards:', err)
     }
@@ -60,7 +58,6 @@ export const SrsReviewRunner: React.FC<Props> = ({ isOpen, onClose, onReviewReco
         setIsAnswerRevealed(false)
         setStartTime(Date.now())
       } else {
-        // Finished all
         setCurrentIndex(cards.length)
       }
     } catch (err) {
@@ -69,105 +66,81 @@ export const SrsReviewRunner: React.FC<Props> = ({ isOpen, onClose, onReviewReco
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 select-none animate-in fade-in duration-200">
-      {/* Top Header */}
-      <div className="max-w-2xl w-full flex items-center justify-between mb-8">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
-            <BookOpen className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-bold text-white">Active Recall & SRS Review (#review)</h2>
-            <p className="text-xs text-synapse-muted">Modified Free Spaced Repetition Scheduler (FSRS)</p>
-          </div>
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 select-none text-xs">
+      <div className="max-w-xl w-full flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <BookOpen className="w-4 h-4 text-[#8C6D37]" />
+          <span className="font-semibold text-[#D8DAE0]">Powtórki FSRS (#review)</span>
         </div>
-
-        <button
-          onClick={onClose}
-          className="p-2 rounded-xl text-synapse-muted hover:text-white hover:bg-synapse-surface transition-colors"
-        >
-          <X className="w-5 h-5" />
+        <button onClick={onClose} className="p-1 rounded text-[#727683] hover:text-[#D8DAE0]">
+          <X className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Main Flashcard Container */}
-      <div className="max-w-2xl w-full frosted-glass rounded-2xl border border-synapse-border p-8 shadow-2xl flex flex-col min-h-[380px] justify-between relative overflow-hidden">
+      <div className="max-w-xl w-full rounded-xl bg-[#141519] border border-[#282932] p-6 shadow-2xl flex flex-col min-h-[320px] justify-between">
         {currentCard ? (
           <>
-            {/* Progress Bar */}
-            <div className="flex items-center justify-between text-xs text-synapse-muted mb-4 pb-2 border-b border-synapse-border/40">
-              <span>Card {currentIndex + 1} of {cards.length}</span>
-              <span className="font-mono text-emerald-400">Stability: {currentCard.stability}d | Diff: {currentCard.difficulty}</span>
+            <div className="flex items-center justify-between text-[11px] text-[#727683] pb-2 border-b border-[#22242b]">
+              <span>Karta {currentIndex + 1} z {cards.length}</span>
+              <span className="font-mono">S: {currentCard.stability}d | D: {currentCard.difficulty}</span>
             </div>
 
-            {/* Question */}
-            <div className="my-auto text-center py-4">
-              <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wider mb-2">Question</div>
-              <h3 className="text-xl font-bold text-white leading-relaxed">{currentCard.question_text}</h3>
+            <div className="my-auto text-center py-6">
+              <div className="text-[10px] font-semibold text-[#8C6D37] uppercase tracking-wider mb-2">Pytanie</div>
+              <h3 className="text-base font-semibold text-[#D8DAE0] leading-relaxed">{currentCard.question_text}</h3>
             </div>
 
-            {/* Answer Section */}
             {isAnswerRevealed ? (
-              <div className="mt-4 pt-4 border-t border-synapse-border/50 text-center animate-in fade-in duration-150">
-                <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider mb-2">Answer</div>
-                <div className="text-lg font-semibold text-emerald-300 mb-6">{currentCard.answer_text}</div>
+              <div className="pt-3 border-t border-[#22242b] text-center">
+                <div className="text-[10px] font-semibold text-[#38664B] uppercase tracking-wider mb-1">Odpowiedź</div>
+                <div className="text-sm font-medium text-[#D8DAE0] mb-4">{currentCard.answer_text}</div>
 
-                {/* 4 FSRS Grade Buttons */}
-                <div className="grid grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-4 gap-2">
                   <button
                     onClick={() => handleGrade(1)}
-                    className="py-3 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-xs font-bold transition-all hover:scale-105"
+                    className="py-2 rounded-lg bg-[#1b1c22] hover:bg-[#7A3E48]/30 border border-[#282932] text-[#D8DAE0] text-[11px] transition-colors"
                   >
-                    <div>1 - Again</div>
-                    <div className="text-[10px] font-normal opacity-75">&lt; 1 day</div>
+                    1 - Again
                   </button>
-
                   <button
                     onClick={() => handleGrade(2)}
-                    className="py-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition-all hover:scale-105"
+                    className="py-2 rounded-lg bg-[#1b1c22] hover:bg-[#8C6D37]/30 border border-[#282932] text-[#D8DAE0] text-[11px] transition-colors"
                   >
-                    <div>2 - Hard</div>
-                    <div className="text-[10px] font-normal opacity-75">~2 days</div>
+                    2 - Hard
                   </button>
-
                   <button
                     onClick={() => handleGrade(3)}
-                    className="py-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition-all hover:scale-105"
+                    className="py-2 rounded-lg bg-[#1b1c22] hover:bg-[#38664B]/30 border border-[#282932] text-[#D8DAE0] text-[11px] transition-colors"
                   >
-                    <div>3 - Good</div>
-                    <div className="text-[10px] font-normal opacity-75">~4 days</div>
+                    3 - Good
                   </button>
-
                   <button
                     onClick={() => handleGrade(4)}
-                    className="py-3 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 text-xs font-bold transition-all hover:scale-105"
+                    className="py-2 rounded-lg bg-[#1b1c22] hover:bg-[#4A6B8A]/30 border border-[#282932] text-[#D8DAE0] text-[11px] transition-colors"
                   >
-                    <div>4 - Easy</div>
-                    <div className="text-[10px] font-normal opacity-75">~8 days</div>
+                    4 - Easy
                   </button>
                 </div>
               </div>
             ) : (
               <button
                 onClick={() => setIsAnswerRevealed(true)}
-                className="w-full py-4 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 hover:from-amber-400 hover:to-emerald-400 text-white font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.01]"
+                className="w-full py-2.5 rounded-lg bg-[#1b1c22] hover:bg-[#22242b] text-[#D8DAE0] font-medium text-xs border border-[#282932] transition-colors"
               >
-                Show Answer (Space)
+                Pokaż Odpowiedź (Spacja)
               </button>
             )}
           </>
         ) : (
-          <div className="text-center my-auto py-8">
-            <Award className="w-16 h-16 text-emerald-400 mx-auto mb-4 animate-bounce" />
-            <h3 className="text-xl font-bold text-white mb-2">All Reviews Complete!</h3>
-            <p className="text-xs text-synapse-muted mb-6">
-              You reviewed {completedCount} flashcards today. Retention weights have been updated in SQLite.
-            </p>
+          <div className="text-center my-auto py-6">
+            <Award className="w-10 h-10 text-[#38664B] mx-auto mb-3" />
+            <h3 className="text-sm font-semibold text-[#D8DAE0] mb-1">Wszystkie powtórki ukończone!</h3>
+            <p className="text-[11px] text-[#727683] mb-4">Przerobiono {completedCount} kart dzisiaj.</p>
             <button
               onClick={onClose}
-              className="py-2.5 px-6 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-semibold shadow-lg transition-all"
+              className="py-1.5 px-4 rounded-lg bg-[#1b1c22] text-[#D8DAE0] text-xs border border-[#282932]"
             >
-              Return to Workspace
+              Powrót do tablicy
             </button>
           </div>
         )}

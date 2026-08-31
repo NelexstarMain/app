@@ -1,8 +1,35 @@
-export type CanvasNodeType = 'text_card' | 'visual_entity_node' | 'quiz_card' | 'file_node'
+export type CanvasNodeType =
+  | 'text_card'
+  | 'sticky_note'
+  | 'shape'
+  | 'visual_entity_node'
+  | 'image_node'
+  | 'drawing_stroke'
+  | 'quiz_card'
 
 export interface TextCardData {
-  title: string
+  title?: string
   markdown: string
+}
+
+export interface StickyNoteData {
+  text: string
+  color: 'yellow' | 'blue' | 'green' | 'purple' | 'gray'
+}
+
+export interface ShapeData {
+  shapeType: 'rectangle' | 'ellipse' | 'frame'
+  label?: string
+  fillColor?: string
+  borderColor?: string
+}
+
+export interface ImageNodeData {
+  src: string
+  title?: string
+  entity_id?: string
+  linked_note_id?: string | null
+  aspectRatio?: number
 }
 
 export interface VisualEntityNodeData {
@@ -10,11 +37,16 @@ export interface VisualEntityNodeData {
   override_label?: string
   display_mode?: 'card_with_preview' | 'avatar_only' | 'compact'
   show_backlink_badge?: boolean
-  // Populated for rendering
   title?: string
   media_path?: string
   thumb_path?: string
   linked_note_id?: string | null
+}
+
+export interface DrawingStrokeData {
+  points: Array<{ x: number; y: number }>
+  color: string
+  width: number
 }
 
 export interface QuizCardData {
@@ -60,7 +92,7 @@ export interface CanvasViewport {
 }
 
 export interface CanvasDocument {
-  version: '1.3'
+  version: '1.3' | '1.4'
   canvas_id: string
   title: string
   viewport: CanvasViewport
