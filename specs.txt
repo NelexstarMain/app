@@ -1,0 +1,1214 @@
+================================================================================
+KOMPLETNA SPECYFIKACJA TECHNICZNA SYSTEMU NAUKI
+PROJEKT: COGNICANVAS / SYNAPSELEARN (WERSJA 1.3)
+PEŁNY DOKUMENT ARCHITEKTURY SYSTEMU (MASTER TECHNICAL DESIGN DOCUMENT)
+================================================================================
+
+SPIS TREŚCI:
+1. CZĘŚĆ 1: ARCHITEKTURA DANYCH, SYSTEM PLIKÓW I BAZA DANYCH SQLITE
+   1.1. Model Hybrydowy Local-First (Filozofia i Przepływ Danych)
+   1.2. Pełny Schemat Bazy Danych SQLite (DDL SQL)
+   1.3. Format Pliku Płótna: .canvas.json (Wersja 1.3 ze wsparciem dla Visual Entities)
+   1.4. System Plików i Struktura Folderów Workspace
+   1.5. Silnik Wyszukiwania Pełnotekstowego (FTS5) i Synchronizacja Triggerami
+
+2. CZĘŚĆ 2: MASZYNA STANÓW SESJI, TRACKER AKTYWNOŚCI I FOCUS ENGINE
+   2.1. Precyzyjna Maszyna Stanów Sesji (Finite State Machine - FSM)
+   2.2. Algorytm Wykrywania Rzeczywistego Skupienia (Heartbeat & Anti-Idle)
+   2.3. Bufor Delty Sesyjnej (SessionDeltaBuffer w RAM)
+   2.4. Zarządzanie Kolejką Zadań: Topics to Learn & Things to Do
+
+3. CZĘŚĆ 3: SILNIK WIZUALNYCH OBIEKTÓW I DYNAMICZNEGO GRAFU WIEDZY
+   3.1. Standard Visual Entity (Obraz jako pełnoprawny węzeł wiedzy)
+   3.2. Transkluzja i Cross-Canvas Synchronization (Współdzielenie Obiektów)
+   3.3. Real-Time AST Markdown Parser (Ekstrakcja linków i grafu w locie)
+   3.4. Silnik Grafu Wiedzy (Force-Directed Physics & Visual Rendering)
+   3.5. System Świecących Węzłów (Session Glow Effect & Shaders)
+
+4. CZĘŚĆ 4: TERMINAL KOMEND, CLI I BOCZNY PANEL ZASOBÓW (ASSET DRAWER)
+   4.1. Architektura Command Palette & Terminal Parser
+   4.2. Kompletny Rejestr Wszystkich Komend Systemowych
+   4.3. Boczny Inteligentny Panel Zasobów (Asset & Link Drawer)
+   4.4. Trójformatowy Pipeline Drag-and-Drop (MIME Protocol)
+
+5. CZĘŚĆ 5: SILNIK ANALITYKI, ALGORYTM POWTÓREK I PĘTLA ZWROTNA
+   5.1. Algorytm Powtórek w Odstępach (Spaced Repetition - Model FSRS)
+   5.2. Mechanika Bloków Testowych Active Recall (#test)
+   5.3. Metryki Analityczne i Statystyki Sesji (Deep Analytics)
+   5.4. Automatyczna Pętla Zwrotna (Feedback Loop & Smart Scheduling)
+
+6. CZĘŚĆ 6: WIELOWĄTKOWOŚĆ, EVENT BUS, BEZPIECZEŃSTWO I CYKL ŻYCIA
+   6.1. Architektura Procesów i Wielowątkowości (Threading & Concurrency Model)
+   6.2. Pełny Rejestr Zdarzeń Systemowych (Global Event Bus Specification)
+   6.3. Odporność na Awarie, Bezpieczeństwo i Zapis Danych (Data Resilience)
+
+================================================================================
+
+
+================================================================================
+DOKUMENTACJA TECHNICZNA SYSTEMU NAUKI (SYNAPSELEARN / COGNICANVAS v1.3)
+CZĘŚĆ 1: ARCHITEKTURA DANYCH, SYSTEM PLIKÓW I BAZA DANYCH SQLITE
+================================================================================
+
+1.1. MODEL HYBRYDOWY LOCAL-FIRST (FILOZOFIA I PRZEPŁYW DANYCH)
+--------------------------------------------------------------------------------
+Architektura opiera się na paradygmacie Local-First:
+1. Pliki tekstowe (Markdown) oraz pliki płótna (.canvas.json) są nadrzędnym,
+   trwałym źródłem prawdy (Source of Truth). Użytkownik posiada 100% kontroli
+   nad swoimi plikami na dysku.
+2. Relacyjna baza danych SQLite (wraz z silnikiem FTS5) pełni rolę reaktywnego
+   indeksu w pamięci i na dysku (Query & Relationship Acceleration Engine).
+   Nawet w przypadku całkowitego usunięcia bazy danych SQLite, może ona zostać
+   zrekonstruowana w czasie poniżej kilku sekund na drodze pełnego parsowania
+   katalogu roboczego (Cold Reindex).
+
+Przepływ zmian (Write/Read Flow):
+- Zmiana w UI (edycja notatki / zmiana na Canvasie) -> Zapis asynchroniczny do pliku .md / .canvas.json.
+- File System Watcher / Event Emitter -> Emisja zdarzenia FILE_MUTATED.
+- Background Indexer Worker -> Parsowanie AST -> Aktualizacja odpowiednich tabel w bazie SQLite.
+- Reaktywne interfejsy (Graf, Wyszukiwarka, Asset Drawer) odbierają sygnał i odświeżają widoki bez blokowania wątku głównego UI.
+
+
+1.2. PEŁNY SCHEMAT BAZY DANYCH SQLITE (DDL SQL)
+--------------------------------------------------------------------------------
+Poniższy kod SQL definiuje pełną strukturę bazy danych SQLite wykorzystywanej
+przez silnik w tle (plik: .workspace/index.db).
+
+-- Włączenie kluczy obcych i trybu zapisu WAL dla maksymalnej wydajności
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+
+-- ============================================================================
+-- 1. TABELA NOTATEK (NOTES)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS notes (
+    note_id TEXT PRIMARY KEY,               -- Względna ścieżka np. 'notes/historia/konstytucja.md'
+    title TEXT NOT NULL,                    -- Tytuł dokumentu (H1 lub nazwa pliku)
+    file_path TEXT NOT NULL UNIQUE,         -- Ścieżka bezwzględna / relatywna
+    word_count INTEGER DEFAULT 0,           -- Liczba słów
+    char_count INTEGER DEFAULT 0,           -- Liczba znaków
+    checksum_hash TEXT NOT NULL,            -- Suma kontrolna SHA-256 do szybkiego wykrywania zmian
+    created_at INTEGER NOT NULL,            -- Unix timestamp (ms)
+    updated_at INTEGER NOT NULL             -- Unix timestamp (ms)
+);
+
+-- ============================================================================
+-- 2. TABELA ENCJI WIZUALNYCH (VISUAL ENTITIES - v1.2 & v1.3)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS visual_entities (
+    entity_id TEXT PRIMARY KEY,             -- Unikalny identyfikator np. '@entity_poniatowski_1732'
+    title TEXT NOT NULL,                    -- Tytuł / Imię / Etykieta (np. 'Stanisław August Poniatowski')
+    media_asset_id TEXT NOT NULL,           -- Odwołanie do tabeli assets (portret, ikona, diagram)
+    linked_note_id TEXT,                    -- Opcjonalne powiązanie z główną notatką (FK -> notes.note_id)
+    description_snippet TEXT,               -- Krótki ekstrakt tekstowy (do tooltipa i wyszukiwarki)
+    entity_type TEXT DEFAULT 'concept',     -- Typ: 'person', 'event', 'concept', 'formula', 'artwork'
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (linked_note_id) REFERENCES notes(note_id) ON DELETE SET NULL
+);
+
+-- ============================================================================
+-- 3. TABELA PŁÓCIEN (CANVASES)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS canvases (
+    canvas_id TEXT PRIMARY KEY,             -- np. 'canvases/rozbiory_polski.canvas.json'
+    title TEXT NOT NULL,                    -- Nazwa płótna
+    file_path TEXT NOT NULL UNIQUE,
+    node_count INTEGER DEFAULT 0,
+    edge_count INTEGER DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+-- ============================================================================
+-- 4. TABELA RELACJI I KRAWĘDZI GRAFU (RELATIONS & EDGES)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS graph_edges (
+    edge_id TEXT PRIMARY KEY,               -- UUID krawędzi
+    source_id TEXT NOT NULL,                -- ID źródła (note_id lub entity_id lub canvas_id)
+    source_type TEXT NOT NULL,              -- 'note' | 'visual_entity' | 'canvas' | 'block'
+    target_id TEXT NOT NULL,                -- ID celu (note_id lub entity_id lub canvas_id)
+    target_type TEXT NOT NULL,              -- 'note' | 'visual_entity' | 'canvas' | 'block'
+    relation_label TEXT,                    -- Etykieta relacji np. 'INICJATOR', 'SKUTEK', 'PRZYCZYNA'
+    origin_context TEXT NOT NULL,           -- Gdzie relacja powstała: 'inline_link' | 'canvas_arrow' | 'manual_tag'
+    origin_canvas_id TEXT,                  -- Jeśli relacja powstała ze strzałki na Canvasie (FK)
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (origin_canvas_id) REFERENCES canvases(canvas_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_edges_source ON graph_edges(source_id);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON graph_edges(target_id);
+CREATE INDEX IF NOT EXISTS idx_edges_relation ON graph_edges(relation_label);
+
+-- ============================================================================
+-- 5. TABELA ZASOBÓW MULTIMEDIALNYCH (ASSETS & MEDIA)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS assets (
+    asset_id TEXT PRIMARY KEY,              -- Hasz SHA-256 zawartości pliku (deduplikacja)
+    original_filename TEXT NOT NULL,
+    storage_path TEXT NOT NULL,             -- np. 'assets/images/a8f9c...png'
+    thumbnail_path TEXT,                    -- np. '.cache/thumbs/a8f9c...webp'
+    mime_type TEXT NOT NULL,                -- 'image/png', 'image/jpeg', 'image/svg+xml'
+    byte_size INTEGER NOT NULL,
+    width INTEGER,
+    height INTEGER,
+    created_at INTEGER NOT NULL
+);
+
+-- ============================================================================
+-- 6. TABELA ZADAŃ I TEMATÓW (TOPICS & THINGS TO DO)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS tasks_todo (
+    task_id TEXT PRIMARY KEY,               -- UUID zadania
+    topic_id TEXT,                          -- Opcjonalna grupa / temat nadrzędny (Topics to learn)
+    title TEXT NOT NULL,                    -- Treść zadania
+    priority TEXT NOT NULL,                 -- 'P1' (wysoki/czerwony), 'P2' (średni/żółty), 'P3' (niski/zielony)
+    status TEXT NOT NULL,                   -- 'BACKLOG' | 'SELECTED_FOR_SESSION' | 'COMPLETED' | 'ARCHIVED'
+    time_estimate_minutes INTEGER DEFAULT 25,
+    assigned_session_id TEXT,               -- ID sesji, podczas której zadanie zostało wybrane
+    completed_at INTEGER,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks_todo(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks_todo(priority);
+
+-- ============================================================================
+-- 7. TABELA HISTORII SESJI NAUKI (SESSION HISTORY & ANALYTICS)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS session_history (
+    session_id TEXT PRIMARY KEY,            -- UUID sesji
+    started_at INTEGER NOT NULL,            -- Unix timestamp (ms)
+    ended_at INTEGER NOT NULL,              -- Unix timestamp (ms)
+    planned_duration_minutes INTEGER,
+    effective_focus_seconds INTEGER NOT NULL, -- Czas rzeczywistego skupienia (bez bezczynności)
+    idle_seconds INTEGER DEFAULT 0,         -- Czas wykrytej bezczynności
+    pauses_count INTEGER DEFAULT 0,
+    tasks_completed_count INTEGER DEFAULT 0,
+    nodes_created_count INTEGER DEFAULT 0,
+    edges_created_count INTEGER DEFAULT 0,
+    notes_written_count INTEGER DEFAULT 0,
+    user_self_eval_score REAL,              -- Ocena zrozumienia (1.0 do 5.0)
+    streak_day_count INTEGER NOT NULL       -- Liczba dni z rzędu w momencie ukończenia sesji
+);
+
+-- ============================================================================
+-- 8. TABELA POWTÓREK W ODSTĘPACH (SPACED REPETITION / ACTIVE RECALL CARDS)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS srs_cards (
+    card_id TEXT PRIMARY KEY,               -- UUID fiszki/testu (#test)
+    parent_note_id TEXT,                    -- FK -> notes.note_id
+    parent_entity_id TEXT,                  -- FK -> visual_entities.entity_id
+    parent_canvas_id TEXT,                  -- FK -> canvases.canvas_id
+    question_text TEXT NOT NULL,            -- Treść pytania
+    answer_text TEXT NOT NULL,              -- Treść odpowiedzi
+    media_asset_id TEXT,                    -- Opcjonalny obraz w odpowiedzi
+    stability REAL NOT NULL DEFAULT 1.0,    -- Parametr S w modelu FSRS (w dniach)
+    difficulty REAL NOT NULL DEFAULT 5.0,   -- Parametr D w modelu FSRS (1.0 do 10.0)
+    repetitions INTEGER DEFAULT 0,
+    lapses INTEGER DEFAULT 0,
+    state TEXT NOT NULL DEFAULT 'NEW',      -- 'NEW' | 'LEARNING' | 'REVIEW' | 'RELEARNING'
+    last_review_at INTEGER,
+    due_date INTEGER NOT NULL,              -- Unix timestamp (dni / ms), kiedy przypada powtórka
+    FOREIGN KEY (parent_note_id) REFERENCES notes(note_id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_entity_id) REFERENCES visual_entities(entity_id) ON DELETE CASCADE,
+    FOREIGN KEY (media_asset_id) REFERENCES assets(asset_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_srs_due ON srs_cards(due_date);
+
+-- ============================================================================
+-- 9. TABELA TAGÓW I POWIĄZAŃ WIELU DO WIELU
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS tags (
+    tag_name TEXT PRIMARY KEY               -- np. '#krol', '#reformy'
+);
+
+CREATE TABLE IF NOT EXISTS item_tags (
+    tag_name TEXT NOT NULL,
+    item_id TEXT NOT NULL,                  -- note_id / entity_id / canvas_id
+    item_type TEXT NOT NULL,                -- 'note' | 'entity' | 'canvas'
+    PRIMARY KEY (tag_name, item_id),
+    FOREIGN KEY (tag_name) REFERENCES tags(tag_name) ON DELETE CASCADE
+);
+
+-- ============================================================================
+-- 10. WIRTUALNA TABELA FULL-TEXT SEARCH (FTS5) DLA BŁYSKAWICZNEGO SZUKANIA
+-- ============================================================================
+CREATE VIRTUAL TABLE IF NOT EXISTS global_search_fts USING fts5(
+    item_id UNINDEXED,                      -- ID dokumentu lub encji
+    item_type UNINDEXED,                    -- 'note' | 'visual_entity' | 'card'
+    title,                                  -- Wyszukiwanie po tytule
+    content,                                -- Pełna treść
+    tags,                                   -- Lista tagów rozdzielona spacjami
+    tokenize = 'unicode61 remove_diacritics 1'
+);
+
+
+1.3. FORMAT PLIKU PŁÓTNA: .canvas.json (WERSJA 1.3 ZE WSPARCIEM DLA VISUAL ENTITIES)
+--------------------------------------------------------------------------------
+Pliki płótna są zgodne z rozszerzonym standardem JSON Canvas, ze specjalną
+obsługą encji wizualnych i bloków testowych:
+
+{
+  "version": "1.3",
+  "canvas_id": "canvases/rozbiory_polski.canvas.json",
+  "title": "Rozbiory Polski i Sejm Czteroletni",
+  "viewport": { "x": -150.0, "y": -80.0, "zoom": 0.85 },
+  "nodes": [
+    {
+      "id": "node_evt_1791",
+      "type": "text_card",
+      "x": 200,
+      "y": 120,
+      "width": 280,
+      "height": 180,
+      "color": "#3B82F6",
+      "data": {
+        "title": "Sejm Czteroletni (1788-1792)",
+        "markdown": "Uchwalenie **Ustawy Rządowej** mającej na celu naprawę ustroju Rzeczypospolitej."
+      }
+    },
+    {
+      "id": "node_inst_poniatowski",
+      "type": "visual_entity_node",
+      "x": 580,
+      "y": 100,
+      "width": 260,
+      "height": 320,
+      "color": "#8B5CF6",
+      "data": {
+        "entity_id": "@entity_poniatowski_1732",
+        "override_label": "Stanisław August (Inicjator)",
+        "display_mode": "card_with_preview",
+        "show_backlink_badge": true
+      }
+    },
+    {
+      "id": "node_quiz_1",
+      "type": "quiz_card",
+      "x": 580,
+      "y": 480,
+      "width": 260,
+      "height": 160,
+      "color": "#F59E0B",
+      "data": {
+        "srs_card_id": "q_9821",
+        "question": "W którym roku uchwalono Konstytucję 3 Maja?",
+        "answer": "1791 rok",
+        "is_flipped": false
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_sejm_to_krol",
+      "fromNode": "node_evt_1791",
+      "fromSide": "right",
+      "toNode": "node_inst_poniatowski",
+      "toSide": "left",
+      "label": "INICJATOR REFORM",
+      "color": "#60A5FA",
+      "style": "solid",
+      "bidirectional": false
+    },
+    {
+      "id": "edge_krol_to_quiz",
+      "fromNode": "node_inst_poniatowski",
+      "fromSide": "bottom",
+      "toNode": "node_quiz_1",
+      "toSide": "top",
+      "label": "SPRAWDŹ WIEDZĘ",
+      "color": "#F59E0B",
+      "style": "dashed",
+      "bidirectional": false
+    }
+  ]
+}
+
+
+1.4. SYSTEM PLIKÓW I STRUKTURA FOLDERÓW WORKSPACE
+--------------------------------------------------------------------------------
+Struktura fizyczna na dysku komputera użytkownika:
+
+/MojaBazaWiedzy (Workspace Root)
+│
+├── .workspace/                     <-- Ukryty folder systemowy (Index & Metadata)
+│   ├── index.db                    <-- Baza danych SQLite (schemat z p. 1.2)
+│   ├── index.db-wal                <-- Dziennik transakcji Write-Ahead Log
+│   ├── config.json                 <-- Ustawienia użytkownika i preferencje sesji
+│   └── session_current.json        <-- Zrzut stanu w locie (Crash Recovery)
+│
+├── .cache/                         <-- Folder pamięci podręcznej
+│   ├── thumbnails/                 <-- Miniaturki WebP dla Visual Entities (128x128, 256x256)
+│   └── temp_exports/               <-- Pliki tymczasowe generowane podczas eksportu
+│
+├── assets/                         <-- Wszystkie pliki multimedialne
+│   ├── images/                     <-- Portrety, ryciny, wykresy, zdjęcia
+│   ├── diagrams/                   <-- Wektory SVG, schematy
+│   └── audio/                      <-- Notatki głosowe i wymowa
+│
+├── notes/                          <-- Notatki tekstowe w czystym Markdown (.md)
+│   ├── Historia/
+│   │   ├── Poniatowski.md
+│   │   └── Konstytucja_3_Maja.md
+│   ├── Biologia/
+│   └── Fizyka/
+│
+└── canvases/                       <-- Płótna myślenia wizualnego (.canvas.json)
+    ├── Rozbiory_Polski.canvas.json
+    └── Oswiecenie_Kultura.canvas.json
+
+
+1.5. SILNIK WYSZUKIWANIA PEŁNOTEKSTOWEGO (FTS5) I SYNCHRONIZACJA TRIGGERAMI
+--------------------------------------------------------------------------------
+Aby wyszukiwanie w terminalu (#links) trwało poniżej 2 milisekund, baza SQLite
+wykorzystuje automatyczne triggery synchronizujące treść notatek z indeksem FTS5:
+
+-- Trigger: Dodanie nowej notatki
+CREATE TRIGGER IF NOT EXISTS trg_notes_fts_insert AFTER INSERT ON notes
+BEGIN
+    INSERT INTO global_search_fts (item_id, item_type, title, content, tags)
+    VALUES (new.note_id, 'note', new.title, '', '');
+END;
+
+-- Trigger: Aktualizacja notatki
+CREATE TRIGGER IF NOT EXISTS trg_notes_fts_update AFTER UPDATE ON notes
+BEGIN
+    UPDATE global_search_fts
+    SET title = new.title
+    WHERE item_id = new.note_id AND item_type = 'note';
+END;
+
+-- Trigger: Usunięcie notatki
+CREATE TRIGGER IF NOT EXISTS trg_notes_fts_delete AFTER DELETE ON notes
+BEGIN
+    DELETE FROM global_search_fts WHERE item_id = old.note_id AND item_type = 'note';
+END;
+
+Zapytanie wyszukiwania pełnotekstowego z rankingiem BM25 dla terminala (#links):
+SELECT item_id, item_type, title, bm25(global_search_fts) as rank
+FROM global_search_fts
+WHERE global_search_fts MATCH 'Poniatowski*'
+ORDER BY rank
+LIMIT 20;
+
+================================================================================
+KONIEC CZĘŚCI 1. PLIK ZOSTAŁ ZAPISANY DO czesc_1_architektura_danych.txt
+================================================================================
+
+================================================================================
+
+================================================================================
+DOKUMENTACJA TECHNICZNA SYSTEMU NAUKI (SYNAPSELEARN / COGNICANVAS v1.3)
+CZĘŚĆ 2: MASZYNA STANÓW SESJI, TRACKER AKTYWNOŚCI I FOCUS ENGINE
+================================================================================
+
+2.1. PRECYZYJNA MASZYNA STANÓW SESJI (FINITE STATE MACHINE - FSM)
+--------------------------------------------------------------------------------
+Zarządzanie czasem i trybem skupienia opiera się na deterministycznej maszynie
+stanów (Session State Machine). Zapobiega to niespójnościom danych, wyciekom
+czasu oraz błędnemu naliczaniu statystyk w analityce długoterminowej.
+
+Dostępne stany w systemie:
+1. `IDLE`              - Stan spoczynku. Użytkownik przegląda bazę, nie ma aktywnej sesji.
+2. `CONFIGURING`       - Otwarty modal KROKU 1 (wybór priorytetów P1/P2/P3 z Topics do Things to do).
+3. `ACTIVE_FOCUS`      - Sesja aktywna. Licznik czasu bije, monitorowany jest ruch użytkownika.
+4. `AUTO_PAUSED`       - Automatyczne wstrzymanie po przekroczeniu progu bezczynności (np. 300 s).
+5. `MANUAL_PAUSED`     - Ręczne wstrzymanie przez użytkownika (np. krótka przerwa toaletowa).
+6. `EVALUATION_MODAL`  - Użytkownik kliknął "Zakończ sesję" (#session finish) -> modal KROKU 3.
+7. `COMMITTED`         - Dane sesji zwalidowane, zapisane w SQLite, pętla zwrotna wykonana.
+8. `TERMINATED_ABORT`  - Sesja anulowana przez użytkownika bez zapisu statystyk.
+
+TABELA PRZEJŚĆ STANÓW (STATE TRANSITION MATRIX):
++--------------------+-------------------------+--------------------+------------------------------------------+
+| Stan Bieżący       | Zdarzenie (Trigger)     | Nowy Stan          | Akcja w tle (Side Effect)                |
++--------------------+-------------------------+--------------------+------------------------------------------+
+| IDLE               | OPEN_SESSION_SETUP      | CONFIGURING        | Pobierz backlog Topics & Tasks           |
+| CONFIGURING        | START_SESSION_CLICKED   | ACTIVE_FOCUS       | Inicjalizuj SessionDeltaBuffer, start HB |
+| CONFIGURING        | CANCEL_SETUP            | IDLE               | Wyczyść tymczasowy wybór                 |
+| ACTIVE_FOCUS       | HEARTBEAT_TICK          | ACTIVE_FOCUS       | Zwiększ focus_seconds o 1s (gdy aktywny) |
+| ACTIVE_FOCUS       | IDLE_TIMEOUT_TRIGGERED  | AUTO_PAUSED        | Odejmij czas bezczynności, wyślij alert  |
+| ACTIVE_FOCUS       | USER_PAUSE_CLICKED      | MANUAL_PAUSED      | Zatrzymaj stoper, zarejestruj pauzę      |
+| ACTIVE_FOCUS       | FINISH_SESSION_CLICKED  | EVALUATION_MODAL   | Zatrzymaj stoper, zagreguj bufor delty   |
+| AUTO_PAUSED        | USER_ACTIVITY_DETECTED  | ACTIVE_FOCUS       | Wznów stoper skupienia, ukryj overlay    |
+| MANUAL_PAUSED      | USER_RESUME_CLICKED     | ACTIVE_FOCUS       | Wznów stoper skupienia                   |
+| EVALUATION_MODAL   | SUBMIT_EVALUATION       | COMMITTED          | Zapisz do SQLite, przelicz wagi SRS      |
+| EVALUATION_MODAL   | CANCEL_MODAL            | ACTIVE_FOCUS       | Wróć do edycji w trwającej sesji         |
+| COMMITTED          | POST_CLEANUP_DONE       | IDLE               | Wyzeruj bufor RAM, odśwież UI            |
+| ACTIVE_FOCUS       | ABORT_SESSION_CLICKED   | TERMINATED_ABORT   | Odrzuć zmiany z bufora sesji             |
+| TERMINATED_ABORT   | RESET_TO_IDLE           | IDLE               | Przywróć stan spoczynku                  |
++--------------------+-------------------------+--------------------+------------------------------------------+
+
+Implementacja w TypeScript (Wzorzec Maszyny Stanów):
+```typescript
+export type SessionState = 
+  | 'IDLE' 
+  | 'CONFIGURING' 
+  | 'ACTIVE_FOCUS' 
+  | 'AUTO_PAUSED' 
+  | 'MANUAL_PAUSED' 
+  | 'EVALUATION_MODAL' 
+  | 'COMMITTED';
+
+export interface SessionContext {
+  sessionId: string | null;
+  plannedMinutes: number;
+  effectiveFocusSeconds: number;
+  idleSeconds: number;
+  pausesCount: number;
+  selectedTaskIds: string[];
+  sessionDelta: SessionDeltaBuffer;
+  lastActiveTimestamp: number;
+}
+```
+
+
+2.2. ALGORYTM WYKRYWANIA RZECZYWISTEGO SKUPIENIA (HEARTBEAT & ANTI-IDLE)
+--------------------------------------------------------------------------------
+Aby statystyki sesji nie były zakłamywane przez otwartą aplikację w tle, system
+wykorzystuje zaawansowany wielopoziomowy algorytm monitorowania aktywności:
+
+1. Źródła zdarzeń aktywności (Input Event Listeners):
+   * `keydown` - wpisywanie tekstu w notatce, wyszukiwanie w terminalu.
+   * `pointerdown` / `pointermove` - przesuwanie węzłów, przeciąganie z bocznego panelu.
+   * `wheel` - zoomowanie płótna Canvas, przewijanie długiej notatki.
+   * `stylus_draw` - rysowanie odręczne rysikiem po Canvasie.
+
+2. Progi czasowe (Timeouts & Thresholds):
+   * `T_ACTIVE_DEBOUNCE`   = 500 ms (zapobiega spamowaniu pętli głównej).
+   * `T_IDLE_WARNING`      = 180 sekund (3 minuty bez żadnej interakcji).
+   * `T_AUTO_PAUSE_CUTOFF` = 300 sekund (5 minut bez akcji -> automatyczna pauza).
+
+3. Formuła obliczania efektywnego czasu skupienia:
+   Gdy wykryto bezczynność przekraczającą T_AUTO_PAUSE_CUTOFF, z łącznego czasu
+   sesji natychmiast odejmowane jest pełne 300 sekund, aby nie nagradzać
+   użytkownika czasem, w którym odszedł od biurka:
+
+   T_effective = T_total_wall_clock - T_manual_pauses - T_accumulated_idle - (T_current_idle >= 300 ? T_current_idle : 0)
+
+4. Algorytm pętli Heartbeat Worker (uruchamiany co 1000 ms w tle):
+```typescript
+function onHeartbeatTick(ctx: SessionContext): void {
+  if (ctx.state !== 'ACTIVE_FOCUS') return;
+
+  const now = Date.now();
+  const timeSinceLastActivity = (now - ctx.lastActiveTimestamp) / 1000;
+
+  if (timeSinceLastActivity >= 300) {
+    // Przejście w Auto-Pause i cofnięcie 5 minut nieaktywności
+    ctx.effectiveFocusSeconds = Math.max(0, ctx.effectiveFocusSeconds - 300);
+    ctx.idleSeconds += 300;
+    transitionState(ctx, 'AUTO_PAUSED');
+    emitEvent('SESSION_AUTO_PAUSED', { reason: 'INACTIVITY_TIMEOUT' });
+  } else if (timeSinceLastActivity < 5) {
+    // Użytkownik aktywny w ciągu ostatnich 5 sekund
+    ctx.effectiveFocusSeconds += 1;
+  } else {
+    // Stan buforowy (np. czytanie tekstu bez klikania)
+    ctx.effectiveFocusSeconds += 1;
+  }
+}
+```
+
+
+2.3. BUFOR DELTY SESYJNEJ (SESSION DELTA BUFFER W RAM)
+--------------------------------------------------------------------------------
+Podczas trwania sesji wszystkie mutacje danych NIE trafiają bezpośrednio jako
+trwałe statystyki historyczne, lecz są rejestrowane w strukturze `SessionDeltaBuffer`
+znajdującej się w pamięci RAM.
+
+Struktura bufora:
+```typescript
+export class SessionDeltaBuffer {
+  public readonly createdNodeIds: Set<string> = new Set();
+  public readonly modifiedNodeIds: Set<string> = new Set();
+  public readonly createdEdgeIds: Set<string> = new Set();
+  public readonly deletedEdgeIds: Set<string> = new Set();
+  public readonly completedTaskIds: Set<string> = new Set();
+  public readonly addedVisualEntityIds: Set<string> = new Set();
+  public readonly srsReviewsCompleted: Array<{ cardId: string; rating: number; latencyMs: number }> = [];
+  public writtenCharactersDelta: number = 0;
+
+  public registerNodeCreation(nodeId: string): void {
+    this.createdNodeIds.add(nodeId);
+    emitEvent('GRAPH_NODE_MUTATED', { nodeId, isSessionNew: true });
+  }
+
+  public registerEdgeCreation(edgeId: string): void {
+    this.createdEdgeIds.add(edgeId);
+    emitEvent('GRAPH_EDGE_MUTATED', { edgeId, isSessionNew: true });
+  }
+
+  public registerTaskCompletion(taskId: string): void {
+    this.completedTaskIds.add(taskId);
+    emitEvent('TASK_STATUS_CHANGED', { taskId, status: 'COMPLETED' });
+  }
+
+  public getSummaryMetrics() {
+    return {
+      nodesAdded: this.createdNodeIds.size,
+      edgesAdded: this.createdEdgeIds.size,
+      tasksDone: this.completedTaskIds.size,
+      visualEntitiesAdded: this.addedVisualEntityIds.size,
+      reviewsDone: this.srsReviewsCompleted.length,
+      netChars: this.writtenCharactersDelta
+    };
+  }
+}
+```
+
+Rola bufora w systemie:
+1. **Zasilanie zielonej poświaty grafu:** Silnik renderowania grafu sprawdza,
+   czy dany `node_id` znajduje się w `createdNodeIds`. Jeśli tak, renderuje
+   wokół niego neonową zieloną otoczkę z pulsacją.
+2. **Odporność na przerwanie sesji (Abort Resilience):** Jeśli użytkownik
+   zamknie sesję bez zapisu, system może wycofać lub oznaczyć te elementy
+   jako utworzone poza sesją bez zanieczyszczania historii analityki.
+3. **Błyskawiczne generowanie Modalu Podsumowania (Krok 3):** W momencie kliknięcia
+   "Zakończ sesję" podsumowanie pojawia się w czasie < 1 ms, ponieważ dane są
+   już zagregowane w pamięci.
+
+
+2.4. ZARZĄDZANIE KOLEJKĄ ZADAŃ: TOPICS TO LEARN & THINGS TO DO
+--------------------------------------------------------------------------------
+Moduł organizacji pracy dzieli wiedzę na dwa poziomy:
+1. **`Topics to learn` (Repozytorium Tematów):**
+   * P1 (Czerwony / 🔴) - Tematy krytyczne, zbliżające się egzaminy, trudne pojęcia
+     wymagające powtórki (automatycznie ustawiane przez algorytm SRS, gdy ocena < 3).
+   * P2 (Żółty / 🟡)   - Tematy standardowe, w toku realizacji.
+   * P3 (Zielony / 🟢)  - Zagadnienia uzupełniające, ciekawostki, lektury poboczne.
+
+2. **`Things to do` (Kolejka Zadań Bieżącej Sesji):**
+   * Zadania wybrane na KROKU 1 zostają "zamrożone" (Session Snapshot).
+   * Zmiany w globalnej bazie tematów dokonane na innym urządzeniu nie niszczą
+     kolejki aktywnej sesji.
+   * Każde zadanie w kolejce posiada referencję do tematu nadrzędnego:
+     `task.topic_id -> topic.id`.
+   * Odhaczenie zadania w trakcie trwania sesji wywołuje:
+     a) Animację sukcesu w pasku sesyjnym,
+     b) Zapis do `SessionDeltaBuffer.completedTaskIds`,
+     c) Asynchroniczną aktualizację stanu w tabeli `tasks_todo` w SQLite:
+        `UPDATE tasks_todo SET status = 'COMPLETED', completed_at = ? WHERE task_id = ?`.
+
+================================================================================
+KONIEC CZĘŚCI 2. PLIK ZOSTAŁ ZAPISANY DO czesc_2_silnik_sesji_i_focusu.txt
+================================================================================
+
+================================================================================
+
+================================================================================
+DOKUMENTACJA TECHNICZNA SYSTEMU NAUKI (SYNAPSELEARN / COGNICANVAS v1.3)
+CZĘŚĆ 3: SILNIK WIZUALNYCH OBIEKTÓW I DYNAMICZNEGO GRAFU WIEDZY
+================================================================================
+
+3.1. STANDARD VISUAL ENTITY (OBRAZ JAKO PEŁNOPRAWNY WĘZEŁ WIEDZY)
+--------------------------------------------------------------------------------
+Tradycyjne programy PKM traktują obrazy jako pliki statyczne (tzw. "martwe
+załączniki"). W architekturze CogniCanvas v1.3 wprowadzono standard **Visual Entity**,
+w którym każdy plik graficzny staje się obiektem semantycznym wyposażonym
+w unikalny identyfikator UID, metadane, relacje grafowe oraz powiązaną notatkę.
+
+1. Format Identyfikatora Encji (UID Syntax):
+   `@entity_<slug_nazwy>_<hash_crc32>`
+   Przykład: `@entity_poniatowski_a8f9`
+
+2. Potok Przetwarzania Mediów (Media Ingestion Pipeline):
+   a) Użytkownik upuszcza plik graficzny (PNG, JPG, SVG, WebP) na Canvas lub do notatki.
+   b) Hashowanie: Silnik oblicza SHA-256 pliku w celu deduplikacji.
+   c) Magazyn mediów: Plik oryginalny zapisywany jest w `/assets/images/<hash>.<ext>`.
+   d) Generator miniatur: Background Worker generuje w locie miniaturki w formacie WebP:
+      - 64x64 px   (do podglądu w grafie oddalonym i autouzupełnianiu w terminalu),
+      - 256x256 px (do kart węzłów na Canvasie i bocznego panelu #links).
+   e) Rejestracja w bazie: Wpis do tabeli `visual_entities` i `assets` w SQLite.
+
+3. Struktura Obiektu Visual Entity w Pamięci:
+```typescript
+export interface VisualEntity {
+  entityId: string;                 // '@entity_poniatowski_a8f9'
+  title: string;                    // 'Stanisław August Poniatowski'
+  archetype: 'person' | 'event' | 'concept' | 'artwork' | 'formula' | 'location';
+  mediaAsset: {
+    originalPath: string;
+    thumbPath: string;
+    width: number;
+    height: number;
+    mimeType: string;
+  };
+  linkedNoteId: string | null;      // 'notes/Historia/Poniatowski.md'
+  tags: string[];                   // ['#krol', '#reformy', '#wiek18']
+  backlinksCount: number;           // Wyliczana dynamicznie liczba wystąpień
+  createdAt: number;
+  updatedAt: number;
+}
+```
+
+4. Zachowanie Interaktywne w UI (Hover / Click Behavior):
+   * **Hover (Najechanie myszą):** Wyświetlenie pływającej karty (Smart Hover Card)
+     z miniaturą portretu, streszczeniem powiązanej notatki i listą płócien.
+   * **Click (Kliknięcie):** Rozwinięcie pełnego edytora powiązanej notatki
+     w wysuwanym drawerze bez opuszczania aktywnego płótna Canvas.
+   * **Drag-Link (Przeciągnięcie kotwicy):** Wyciągnięcie strzałki ze zdjęcia
+     i połączenie z innym obiektem tworzy semantyczną relację w bazie grafu.
+
+
+3.2. TRANSKLUZJA I CROSS-CANVAS SYNCHRONIZATION (WSPÓŁDZIELENIE OBIEKTÓW)
+--------------------------------------------------------------------------------
+Zamiast kopiować pliki i powielać dane, system wykorzystuje mechanizm instancjonowania
+wielo-płóciennego (Multi-Canvas Transclusion).
+
+1. Model Relacji: Jeden Obiekt Główny -> Wiele Instancji na Płótnach:
+   * Istnieje tylko jeden rekord w `visual_entities` dla Poniatowskiego.
+   * Każde płótno `.canvas.json` przechowuje jedynie referencję:
+     `{ "type": "visual_entity_node", "entity_id": "@entity_poniatowski_a8f9", "x": 580, "y": 100 }`.
+
+2. Globalny Dispatcher Zmian (Synapse Live Sync):
+   Gdy użytkownik edytuje notatkę króla, zmienia jego tagi lub aktualizuje portret:
+   a) Wątek roboczy wysyła zdarzenie: `EVENT_BUS.emit('ENTITY_MUTATED', { entityId })`.
+   b) Wszystkie otwarte w tle widoki Canvas oraz panel boczny subskrybują to zdarzenie.
+   c) Węzły na wszystkich płótnach automatycznie odświeżają swój tytuł, miniaturę
+      i etykiety w czasie < 16 ms (1 klatka 60 FPS) bez przeładowywania interfejsu.
+
+
+3.3. REAL-TIME AST MARKDOWN PARSER (EKSTRAKCJA LINKÓW I GRAFU W LOCIE)
+--------------------------------------------------------------------------------
+Silnik notatek wykorzystuje dedykowany parser oparty na Abstract Syntax Tree (AST),
+który w czasie rzeczywistym (z debouncingiem 250 ms) analizuje tekst użytkownika.
+
+Wzorce rozpoznawania (Regex & AST Rules):
+1. **Visual Entity Mention:**
+   `\[\[(@entity_[a-zA-Z0-9_\-]+)(?:\|([^\]]+))?\]\]`
+   Przykład: `[[@entity_poniatowski_a8f9|Król Stanisław]]`
+   -> Tworzy krawędź grafową: `(Current_Note) -[:REFERENCES]-> (@entity_poniatowski_a8f9)`
+
+2. **Tradycyjny Link Dwukierunkowy:**
+   `\[\[([a-zA-Z0-9_\- /]+)(?:\|([^\]]+))?\]\]`
+   Przykład: `[[Konstytucja 3 Maja]]`
+   -> Tworzy krawędź grafową: `(Current_Note) -[:LINKS_TO]-> (Target_Note)`
+
+3. **Tagi Semantyczne:**
+   `(?<=\s|^)#([a-zA-Z0-9_\-]+)`
+   Przykład: `#reformy`
+   -> Zapisuje relację w tabeli `item_tags`.
+
+4. **Bloki Testowe Active Recall (#test):**
+   `#test\s*\[(.*?)\]\s*\|\s*\[(.*?)\]`
+   Przykład: `#test [Kto uchwalił Konstytucję?] | [Sejm Czteroletni]`
+   -> Tworzy obiekt `srs_cards` podpięty pod aktualny plik.
+
+Przepływ przetwarzania tekstu:
+```
+[ Znak wpisany w edytorze ] ──> [ Debounce 250ms ] ──> [ AST Lexer / Tokenizer ]
+                                                              │
+                                                              ▼
+[ Aktualizacja graph_edges w SQLite ] <── [ Graph Diff Engine ] <── [ Ekstrakcja Relacji ]
+```
+
+
+3.4. SILNIK GRAFU WIEDZY (FORCE-DIRECTED PHYSICS & VISUAL RENDERING)
+--------------------------------------------------------------------------------
+Graf wiedzy renderowany jest przy użyciu akceleracji WebGL / HTML5 Canvas 2D
+z wykorzystaniem symulacji fizycznej opartej na siłach (Force-Directed Simulation):
+
+1. Równania Symulacji Fizycznej:
+   * **Siła Odpychania Węzłów (Coulomb Repulsion):**
+     Zapobiega nakładaniu się pojęć:
+     F_rep(u, v) = -k_rep / (||p_u - p_v||^2) * norm(p_u - p_v)
+   * **Siła Przyciągania Krawędzi (Hooke Spring Attraction):**
+     Utrzymuje powiązane notatki blisko siebie:
+     F_spring(u, v) = k_spring * (||p_u - p_v|| - L_rest) * norm(p_v - p_u)
+   * **Siła Grawitacji Centralnej (Center Gravity):**
+     Ściąga odizolowane klastry w stronę środka ekranu:
+     F_center(u) = -k_center * (p_u - p_origin)
+
+2. Renderowanie Wielopoziomowe (Level of Detail - LOD):
+   W zależności od poziomu przybliżenia (Zoom Level z):
+   * **LOD 1 (z < 0.4 - Daleki widok):**
+     Węzły renderowane są jako proste kolorowe punkty. Krawędzie to cienkie linie (#334155).
+   * **LOD 2 (0.4 <= z < 1.0 - Średni widok):**
+     Węzły zwykłe: kolorowe dyski z etykietami tekstowymi.
+     Visual Entities: okrągłe awatary z miniaturką portretu (przycięcie kołowe `clip()`).
+   * **LOD 3 (z >= 1.0 - Bliski widok):**
+     Pełne karty z miniaturą w wysokiej rozdzielczości, licznikiem backlinków, ikoną
+     archetypu (👑 / 📜 / 🏛️) oraz etykietami semantycznymi na strzałkach (np. "INICJATOR").
+
+
+3.5. SYSTEM ŚWIECĄCYCH WĘZŁÓW (SESSION GLOW EFFECT & SHADERS)
+--------------------------------------------------------------------------------
+Kluczową innowacją interfejsu jest mechanizm nagrody wizualnej: węzły i połączenia
+stworzone podczas trwającej sesji wyróżniają się dynamiczną poświatą.
+
+1. Algorytm Identyfikacji Węzłów Sesyjnych:
+   Dla każdego węzła $i$ w grafie:
+   `isSessionNew = sessionDeltaBuffer.createdNodeIds.has(node.id)`
+   `isSessionModified = sessionDeltaBuffer.modifiedNodeIds.has(node.id)`
+
+2. Matematyczny Model Pulsacji Poświaty (Pulsing Glow Shader):
+   Wartość promienia rozmycia $R_{glow}(t)$ oraz przezroczystości $lpha(t)$
+   zależy od czasu sesji $t$:
+
+   R_glow(t) = R_base + A_r * sin(2 * PI * f_pulse * t)
+   alpha(t)  = alpha_base + A_a * cos(2 * PI * f_pulse * t)
+
+   Gdzie parametry domyślne to:
+   - Częstotliwość pulsacji: f_pulse = 1.2 Hz (spokojny rytm oddechu),
+   - Kolor nowego węzła: Neonowy Szmaragd (`#10B981` / `rgba(16, 185, 129, alpha)`),
+   - Kolor nowej relacji/krawędzi: Neonowy Błękit (`#38BDF8`).
+
+3. Implementacja Renderowania Poświaty (Canvas 2D Context):
+```typescript
+function renderGlowingNode(ctx: CanvasRenderingContext2D, node: GraphNode, time: number): void {
+  const isNew = sessionDelta.createdNodeIds.has(node.id);
+
+  if (isNew) {
+    const pulse = Math.sin(time * 0.005) * 0.5 + 0.5; // Zakres 0.0 .. 1.0
+    const blurRadius = 12 + pulse * 8;                // 12px .. 20px
+
+    ctx.save();
+    ctx.shadowColor = '#10B981';
+    ctx.shadowBlur = blurRadius;
+    ctx.strokeStyle = '#34D399';
+    ctx.lineWidth = 3.0;
+
+    // Rysowanie obrysu świecącego
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, node.radius + 2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Renderowanie właściwego węzła (miniatura lub dysk)
+  drawNodeContent(ctx, node);
+}
+```
+
+4. Płynące Cząstki na Nowych Krawędziach (Flowing Edge Particles):
+   Na krawędziach utworzonych podczas bieżącej sesji renderowane są małe,
+   przesuwające się świetlne punkty (cząstki fotonowe), które poruszają się
+   w kierunku od źródła do celu z prędkością 40 px/s, symbolizując aktywny
+   przepływ wiedzy w mózgu użytkownika.
+
+================================================================================
+KONIEC CZĘŚCI 3. PLIK ZOSTAŁ ZAPISANY DO czesc_3_visual_entities_i_graf.txt
+================================================================================
+
+================================================================================
+
+================================================================================
+DOKUMENTACJA TECHNICZNA SYSTEMU NAUKI (SYNAPSELEARN / COGNICANVAS v1.3)
+CZĘŚĆ 4: TERMINAL KOMEND, CLI I BOCZNY PANEL ZASOBÓW (ASSET DRAWER)
+================================================================================
+
+4.1. ARCHITEKTURA COMMAND PALETTE & TERMINAL PARSER
+--------------------------------------------------------------------------------
+System interakcji opiera się na szybkim sterowaniu klawiaturą (Keyboard-First UI).
+Użytkownik nie musi odrywać rąk od klawiatury, aby nawigować, tworzyć połączenia,
+wstawiać obiekty wizualne czy zmieniać stan sesji.
+
+1. Wyzwalacze Terminala (Triggers):
+   * `Cmd + K` / `Ctrl + K` - Otwiera globalny terminal pływający (Command Bar) w centrum ekranu.
+   * `#` (w edytorze lub na Canvasie) - Uruchamia tryb komend semantycznych (#links, #test, #tag).
+   * `/` (w nowej linii tekstu) - Uruchamia menu wstawiania blokowego (Slash Commands).
+
+2. Potok Przetwarzania Wprowadzonego Polecenia (Command Execution Pipeline):
+```
+[ Wpisanie tekstu w terminalu ] ──> [ Lexer & Tokenizer ] ──> [ AST Command Parser ]
+                                                                     │
+       ┌─────────────────────────────────────────────────────────────┴──────────────────────────────┐
+       ▼                                                             ▼                              ▼
+[ Wyszukiwanie Hybrydowe ]                                 [ Walidacja Parametrów ]      [ Bezpośrednia Akcja ]
+(FTS5 + uFuzzy + Entity Cache)                             (Sprawdzenie flag, typów)     (np. pauza sesji)
+       │                                                             │                              │
+       ▼                                                             ▼                              ▼
+[ Strumieniowanie do Drawer / UI ]                         [ Emisja Zdarzenia EventBus ] [ Aktualizacja SQLite ]
+```
+
+3. Tokenizer i Struktura Gramatyki Poleceń:
+   Składnia polecenia: `<Prefiks><Komenda> [Argument_Główny] [!Flagi_Priorytetu] [~Flagi_Czasu] [--Flagi_Opcjonalne]`
+   Przykład: `#todo Przygotować schemat Sejmu !p1 ~25m --canvas:Rozbiory`
+
+```typescript
+export interface ParsedCommand {
+  rawInput: string;
+  prefix: '#' | '/' | '>';
+  command: string;
+  primaryArgument: string | null;
+  flags: {
+    priority?: 'p1' | 'p2' | 'p3';
+    timeEstimateMin?: number;
+    targetCanvas?: string;
+    targetFolder?: string;
+    depth?: number;
+    format?: 'pdf' | 'png' | 'md';
+    isolated?: boolean;
+  };
+}
+```
+
+
+4.2. KOMPLETNY REJESTR WSZYSTKICH KOMEND SYSTEMOWYCH
+--------------------------------------------------------------------------------
+Poniższa tabela zawiera wyczerpujący spis wszystkich komend silnika CogniCanvas v1.3:
+
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| Komenda / Aliasy   | Pełna Składnia i Flagi                    | Działanie w Tle (Backend Action)              | Efekt Wizualny w Interfejsie (UI)                    |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #links             | #links [fraza] [--type:img|note|all]      | Odpytuje SQLite FTS5 i tabelę visual_entities | Wysuwa z boku Asset Drawer z wynikami                |
+| (/links, /asset)   |                                           | z rankingiem BM25; ładuje miniatury do cache. | i podświetla pasujące karty do przeciągnięcia.       |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #test              | #test [Pytanie] | [Odpowiedź]             | Tworzy rekord w srs_cards (stan: NEW, S=1.0,  | Wstawia na Canvas/do notatki interaktywną kartę      |
+| (/test, /quiz)     | [--due:data]                              | D=5.0); indeksuje relację z bieżącym plikiem. | Active Recall z zakrytą odpowiedzią (flip card).     |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #tag               | #tag [nazwa_tagu]                         | Odpytuje indeks tabeli item_tags;             | Filtruje widok płótna / drzewa plików, ukrywając     |
+| (/tag, #t)         |                                           | buduje zbiór ID pasujących dokumentów.        | elementy nieposiadające zadanego tagu.               |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #graph             | #graph [depth:1..3] [--isolate]           | Wylicza podgraf metodą BFS (Breadth-First)    | Otwiera minigraf w oknie bocznym skupiony wokół      |
+| (/graph, /subgraph)|                                           | dla aktywnego węzła w zadanym promieniu.      | aktualnie edytowanej notatki / postaci.              |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #stats             | #stats [--detailed]                       | Pobiera stan SessionContext i SessionDelta    | Wyświetla półprzezroczysty pływający panel HUD       |
+| (/stats, /hud)     |                                           | z pamięci RAM bez zapytań dyskowych.          | z licznikiem minut, tempem i dodanymi węzłami.       |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #todo              | #todo [Treść] [!p1|!p2|!p3] [~minuty]     | Zapisuje zadanie w tabeli tasks_todo;         | Dodaje pozycję do checklisty w pasku sesyjnym        |
+| (/todo, /task)     |                                           | rejestruje ID w SessionDeltaBuffer.           | u góry ekranu z odpowiednim kolorem priorytetu.      |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #canvas            | #canvas [nazwa] [--template:blank|mindmap]| Tworzy plik canvases/<nazwa>.canvas.json;     | Natychmiast przełącza obszar roboczy na nowe płótno  |
+| (/canvas, /board)  |                                           | rejestruje nowe canvas_id w tabeli canvases.  | z animacją płynnego przejścia kamery (pan & zoom).   |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #note              | #note [tytuł] [--folder:ścieżka]          | Tworzy plik notes/<folder>/<tytuł>.md;        | Otwiera czysty edytor tekstu w aktywnym panelu       |
+| (/note, /doc)      |                                           | inicjalizuje pusty rekord w tabeli notes.     | z kursorem ustawionym w pierwszej linii.             |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #review            | #review [temat|tag] [--limit:N]           | Pobiera fiszki o due_date <= NOW;             | Uruchamia pełnoekranowy tryb szybkiego odpytywania   |
+| (/review, /learn)  |                                           | sortuje według rosnącej retrievability R.     | (SRS Flashcard Runner) z klawiszami ocen (1-4).      |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #orphan            | #orphan [--auto-link]                     | Skanuje SQLite pod kątem węzłów o stopniu 0   | Otwiera listę niepowiązanych notatek i zdjęć         |
+| (/orphan, /clean)  |                                           | (brak krawędzi wejściowych i wyjściowych).    | z opcją automatycznego podpięcia pod temat główny.   |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #session           | #session [pause | resume | finish | abort]| Wysyła sygnał zmiany stanu do maszyny         | Zmienia stan stopera, wysuwa modal oceny (Krok 3)    |
+| (/session, /s)     |                                           | SessionState (opisanej w Części 2).           | lub bezpiecznie przerywa sesję.                      |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #filter            | #filter [--type:img|note] [--prio:p1..p3] | Nakłada dynamiczną maskę selekcji na graf     | Wygasza elementy niespełniające kryteriów            |
+| (/filter)          |                                           | i Canvas w pamięci WebGL.                     | (zmniejsza opacity do 15%), wyróżniając pasujące.    |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #focus             | #focus [--toggle | on | off]              | Minimalizuje poboczne wątki; blokuje skróty   | Przełącza interfejs w tryb Zen (ukrywa wszystkie     |
+| (/focus, /zen)     |                                           | globalne niezwiązane z aktualnym zadaniem.    | panele, zostawia tylko edytor lub płótno i timer).   |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+| #export            | #export [--format:pdf|png|md] [--scope:all| Uruchamia silnik renderowania SVG/Canvas      | Generuje i pobiera gotowy plik dokumentacji          |
+| (/export)          |         canvas|session]                   | do pliku rastrowego lub wektorowego.          | lub raportu z odbytej sesji nauki.                   |
++--------------------+-------------------------------------------+-----------------------------------------------+------------------------------------------------------+
+
+
+4.3. BOCZNY INTELIGENTNY PANEL ZASOBÓW (ASSET & LINK DRAWER)
+--------------------------------------------------------------------------------
+Po wywołaniu komendy `#links` z boku ekranu płynnie wysuwa się panel zasobów.
+
+1. Architektura Wydajnościowa Panelu:
+   * **Wirtualizacja Listy (Virtual Scrolling):** Renderowane są wyłącznie elementy
+     widoczne w oknie (DOM zawiera tylko 10-15 elementów naraz, nawet przy 10 000 obiektów w bazie).
+   * **Wielopoziomowe Buforowanie:** Miniaturki WebP ładowane są bezpośrednio
+     z `.cache/thumbnails/` z pominięciem dekodowania ciężkich plików źródłowych.
+   * **Strumieniowanie Wyników:** Odpowiedzi z bazy SQLite streamowane są partiami po 20 rekordów.
+
+2. Segmentacja Wyników w Panelu:
+   * **Sekcja 1: Obiekty Wizualne (Visual Entities):** Karty z portretami postaci, schematami i rycinami.
+   * **Sekcja 2: Dokumenty Tekstowe (Markdown Notes):** Tytuły, ścieżki i fragmenty zdań pasujące do wyszukiwania.
+   * **Sekcja 3: Bloki Aktywnego Przypominania (Active Recall Cards):** Pytania testowe skojarzone z pojęciem.
+
+
+4.4. TRÓJFORMATOWY PIPELINE DRAG-AND-DROP (MIME PROTOCOL)
+--------------------------------------------------------------------------------
+Gdy użytkownik chwyta myszką obiekt z panelu bocznego i przeciąga go nad obszar roboczy,
+system generuje ustandaryzowany pakiet danych transferowych (DataTransfer Payload):
+
+```typescript
+export interface DragEntityPayload {
+  mimeType: 'application/x-cogni-entity';
+  entityId: string;           // '@entity_poniatowski_a8f9'
+  title: string;              // 'Stanisław August Poniatowski'
+  mediaThumbPath: string;     // '.cache/thumbnails/poniatowski_256.webp'
+  linkedNoteId: string | null;// 'notes/Historia/Poniatowski.md'
+  tags: string[];             // ['#krol', '#reformy']
+  defaultQuestionSnippet: string;
+}
+```
+
+MECHANIKA UPUSZCZENIA W 3 TRYBACH (DROP TARGET HANDLER):
+
+1. **TRYB 1: UPUSZCZENIE JAKO OBRAZ / KARTA WIZUALNA (Visual Node):**
+   * *Gdzie:* Wolna przestrzeń na Canvasie.
+   * *Akcja:* Tworzy węzeł `visual_entity_node` o współrzędnych kursora myszy $(X_{drop}, Y_{drop})$.
+   * *Efekt:* Pojawia się estetyczna karta z portretem, podpisem i przyciskiem rozwijania notatki.
+
+2. **TRYB 2: UPUSZCZENIE JAKO TEKST / LINK DWUKIERUNKOWY (Inline Backlink):**
+   * *Gdzie:* Wnętrze edytora Markdown (między wierszami tekstu).
+   * *Akcja:* Wstawia w miejscu kursora sformatowany link dwukierunkowy: `[[@entity_poniatowski_a8f9|Stanisław August Poniatowski]]`.
+   * *Efekt:* W tekście powstaje interaktywna pigułka linku. Najechanie na nią wyświetla Smart Hover Card z miniaturą.
+
+3. **TRYB 3: UPUSZCZENIE JAKO BLOK TESTOWY / QUIZ (Active Recall Card):**
+   * *Gdzie:* Upuszczenie z przytrzymanym klawiszem `Alt` / `Option` lub wybór z dymka opcji po upuszczeniu.
+   * *Akcja:* Generuje węzeł typu `quiz_card`, pobierając kluczowe pytanie z powiązanej notatki.
+   * *Efekt:* Na Canvasie pojawia się interaktywna karta sprawdzająca wiedzę:
+     > ❓ *Pytanie powiązane z obiektem Stanisław August Poniatowski*
+     > `[ Kliknij, aby odsłonić portret i odpowiedź ]`
+
+================================================================================
+KONIEC CZĘŚCI 4. PLIK ZOSTAŁ ZAPISANY DO czesc_4_terminal_i_asset_drawer.txt
+================================================================================
+
+================================================================================
+
+================================================================================
+DOKUMENTACJA TECHNICZNA SYSTEMU NAUKI (SYNAPSELEARN / COGNICANVAS v1.3)
+CZĘŚĆ 5: SILNIK ANALITYKI, ALGORYTM POWTÓREK I PĘTLA ZWROTNA
+================================================================================
+
+5.1. ALGORYTM POWTÓREK W ODSTĘPACH (SPACED REPETITION - ZMODYFIKOWANY MODEL FSRS)
+--------------------------------------------------------------------------------
+Silnik zapamiętywania w CogniCanvas v1.3 opiera się na nowoczesnym modelu FSRS
+(Free Spaced Repetition Scheduler), który przewyższa klasyczny algorytm SM-2
+o ponad 30% wyższą retencją wiedzy przy mniejszej liczbie powtórek.
+
+1. Główne Zmienne Stanu Karty Wiedzy (SRS State):
+   * **Stability (S) [w dniach]:** Czas, po którym prawdopodobieństwo przypomnienia
+     faktu spada do 90%. Im większa stabilność, tym trwalszy ślad pamięciowy.
+   * **Difficulty (D) [skala 1.0 .. 10.0]:** Wrodzona trudność pojęcia. Im wyższa,
+     tym wolniej rośnie stabilność przy kolejnych powtórkach.
+   * **Retrievability (R) [wartość 0.0 .. 1.0]:** Szansa na poprawne odtworzenie
+     informacji w chwili $t$ (liczba dni od ostatniej powtórki):
+
+     R(t, S) = (1 + FACTOR * (t / S))^(-w)
+     Dla domyślnych parametrów (gdzie R(S, S) = 0.90):
+     R(t, S) = (1 + 19 * (t / S))^(-0.5)
+
+2. Oceny Użytkownika (Review Grades - 1 do 4):
+   * `1 - Again (Brak wiedzy / Zapomniane)` -> Zresetowanie stabilności, spadek S.
+   * `2 - Hard (Trudne)`                   -> Niewielki wzrost S, wzrost D.
+   * `3 - Good (Poprawne / W sam raz)`     -> Standardowy optymalny wzrost S.
+   * `4 - Easy (Bardzo łatwe)`             -> Gwałtowny skok S, spadek D.
+
+3. Formuły Aktualizacji Parametrów (Przeliczanie po odpowiedzi):
+   * Aktualizacja Trudności ($D'$):
+     D' = clamp(D + Delta_D(Grade), 1.0, 10.0)
+     Delta_D(Grade) = -w_D * (Grade - 3)
+
+   * Aktualizacja Stabilności po udanej powtórce (Grade >= 2):
+     S'_success = S * (1 + exp(w_S0) * (11 - D') * S^(-w_S1) * (exp((1 - R) * w_S2) - 1))
+
+   * Aktualizacja Stabilności po nieudanej powtórce (Grade = 1 - Lapse):
+     S'_lapse = min(S_min, w_L0 * D'^(-w_L1) * S^w_L2)
+
+4. Obliczanie Nowego Odstępu Powtórki (Next Interval $I$):
+   Dla docelowej retencji $r_{target} = 0.90$:
+   I = round(S / FACTOR * (r_target^(-1/w) - 1))  [w dniach]
+
+
+5.2. MECHANIKA BLOKÓW TESTOWYCH ACTIVE RECALL (#test)
+--------------------------------------------------------------------------------
+Interaktywne pytania sprawdzające wiedzę mogą występować w trzech miejscach:
+w notatce Markdown, na płótnie Canvas oraz w pełnoekranowym module `#review`.
+
+1. Cykl Życia Karty Testowej:
+```
+[ Wpisanie #test w notatce ] ──> [ Zapis do srs_cards w SQLite ] ──> [ Wyznaczenie due_date ]
+                                                                             │
+       ┌─────────────────────────────────────────────────────────────────────┘
+       ▼
+[ Kiedy due_date <= DZISIAJ ] ──> [ Pojawienie się w Topics to learn (P1/P2) ]
+                                  [ i w kolejce powtórek #review ]
+```
+
+2. Interakcja z Kartą na Płótnie Canvas:
+   * **Stan Zakryty:** Wyświetla treść pytania (np. *"Kiedy uchwalono Konstytucję 3 Maja?"*)
+     oraz przycisk `[ Pokaż Odpowiedź ]`.
+   * **Stan Odkryty:** Wyświetla odpowiedź tekstową, powiązany portret króla (Visual Entity)
+     oraz 4 przyciski oceny: `[1] Znów` (czerwony), `[2] Trudne` (żółty), `[3] Dobre` (zielony), `[4] Łatwe` (błękitny).
+   * Kliknięcie przycisku natychmiast wylicza nowe $S, D, I$, aktualizuje rekord w bazie
+     i rejestruje zdarzenie w `SessionDeltaBuffer.srsReviewsCompleted`.
+
+
+5.3. METRYKI ANALITYCZNE I STATYSTYKI SESJI (DEEP ANALYTICS)
+--------------------------------------------------------------------------------
+System gromadzi wielowymiarowe wskaźniki efektywności intelektualnej:
+
+1. Wskaźnik Płynności Skupienia (Flow Index - $FI$):
+   Mierzy stopień niezakłóconej, ciągłej pracy umysłowej w skali 0.0 .. 1.0:
+   FI = (T_continuous_blocks / T_effective_focus) * (1 - (N_pauses / (T_hours + 1)) * 0.15)
+   * $FI > 0.85$ -> Stan głębokiego Flow (nagroda: odznaka *Deep Thinker*).
+   * $FI < 0.50$ -> Częste rozproszenia (rekomendacja skrócenia bloku do 25 min).
+
+2. Wskaźnik Rozrostu Sieci Wiedzy (Graph Growth Rate - $GGR$):
+   Wskaźnik mierzący, jak intensywnie użytkownik integruje nowe fakty:
+   GGR = (Delta_Nodes + 1.75 * Delta_Edges + 0.5 * Delta_VisualEntities) / (T_effective_focus_hours)
+
+3. Współczynnik Retencji (Retention Rate):
+   Procent poprawnych odpowiedzi w sesjach powtórkowych:
+   Retention = (N_good + N_easy) / (N_again + N_hard + N_good + N_easy) * 100%
+
+4. Silnik Ciągłości Nauki (Streak Engine):
+   * Dzień zalicza się do serii (Streak + 1), gdy użytkownik zrealizuje co najmniej
+     15 minut efektywnego skupienia ($T_{effective} >= 900	ext{ s}$) LUB ukończy min. 10 powtórek SRS.
+   * Mechanizm Zamrożenia Serii (*Streak Freeze*): Automatyczna ochrona 1 dnia nieobecności
+     raz na 14 dni, zapobiegająca utracie motywacji.
+
+
+5.4. AUTOMATYCZNA PĘTLA ZWROTNA (FEEDBACK LOOP & SMART SCHEDULING)
+--------------------------------------------------------------------------------
+Pętla zwrotna łączy KROK 3 (Podsumowanie) z KROKIEM 1 (Planowanie kolejnej sesji):
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 PODSUMOWANIE SESJI: OCENA ZROZUMIENIA (1 - 5)                │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+         ┌─────────────────────────────┼─────────────────────────────┐
+         ▼                             ▼                             ▼
+   [ Ocena 1.0 - 2.5 ]           [ Ocena 3.0 - 4.0 ]           [ Ocena 4.5 - 5.0 ]
+ (Materiał niezrozumiany)        (Standardowe opanowanie)      (Wysokie mistrzostwo)
+         │                             │                             │
+         ▼                             ▼                             ▼
+[ Automatyczny priorytet: P1 ]  [ Automatyczny priorytet: P2 ]  [ Automatyczny priorytet: P3 ]
+[ Powtórka: Jutro rano ]        [ Powtórka: Za 3-5 dni ]       [ Przeniesienie do archiwum ]
+[ Zadania 'Things to do' ]      [ Normalny harmonogram FSRS ]  [ Zagadnienia opanowane ]
+```
+
+Algorytm Aktualizacji Kolejki Topics to Learn:
+```typescript
+export function applySessionFeedbackLoop(
+  topicId: string,
+  userScore: number,
+  lapsesCount: number
+): void {
+  let newPriority: 'P1' | 'P2' | 'P3';
+  let targetIntervalDays: number;
+
+  if (userScore <= 2.5 || lapsesCount >= 2) {
+    newPriority = 'P1'; // Czerwony priorytet na jutro
+    targetIntervalDays = 1;
+  } else if (userScore <= 4.0) {
+    newPriority = 'P2'; // Żółty priorytet standardowy
+    targetIntervalDays = 4;
+  } else {
+    newPriority = 'P3'; // Zielony - utrwalone
+    targetIntervalDays = 14;
+  }
+
+  db.run(`
+    UPDATE tasks_todo 
+    SET priority = ?, 
+        status = 'BACKLOG',
+        time_estimate_minutes = CASE WHEN ? = 'P1' THEN 30 ELSE 15 END
+    WHERE topic_id = ? AND status != 'COMPLETED'
+  `, [newPriority, newPriority, topicId]);
+}
+```
+
+================================================================================
+KONIEC CZĘŚCI 5. PLIK ZOSTAŁ ZAPISANY DO czesc_5_analityka_i_spaced_repetition.txt
+================================================================================
+
+================================================================================
+
+================================================================================
+DOKUMENTACJA TECHNICZNA SYSTEMU NAUKI (SYNAPSELEARN / COGNICANVAS v1.3)
+CZĘŚĆ 6: WIELOWĄTKOWOŚĆ, EVENT BUS, BEZPIECZEŃSTWO I CYKL ŻYCIA
+================================================================================
+
+6.1. ARCHITEKTURA PROCESÓW I WIELOWĄTKOWOŚCI (THREADING & CONCURRENCY MODEL)
+--------------------------------------------------------------------------------
+Aby zapewnić płynność interfejsu na poziomie 60–120 FPS bez zacięć (Zero Frame Drops),
+nawet przy renderingu tysięcy węzłów na Canvasie i ciągłym parsowaniu tekstu,
+architektura została rozbita na odizolowane wątki robocze (Workers):
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       MAIN UI THREAD (Główny Wątek)                         │
+│ • Renderowanie React/Svelte Viewportów  • Obsługa wejścia użytkownika       │
+│ • Obsługa Canvas 2D / WebGL View       • Pasek sesyjny, Drawery, Modale     │
+└───────┬────────────────────────────┬────────────────────────────┬───────────┘
+        │ PostMessage                │ PostMessage                │ SharedBuffer
+        ▼                            ▼                            ▼
+┌──────────────────┐        ┌───────────────────┐        ┌────────────────────┐
+│ GRAPH SIM WORKER │        │ INDEXER & SQLITE  │        │ HEARTBEAT WORKER   │
+│ • D3-Force Fizyka│        │ • FTS5 Tokenizer  │        │ • Odporny na tab-  │
+│ • Barnes-Hut Tree│        │ • AST Parser      │        │   throttling timer │
+│ • Pozycje (X, Y) │        │ • SQLite WAL Sync │        │ • Focus Tracker    │
+└──────────────────┘        └───────────────────┘        └────────────────────┘
+```
+
+1. **Main UI Thread (Wątek Główny):**
+   * Wyłącznie operacje interfejsu, zbieranie zdarzeń z klawiatury i myszy.
+   * Renderowanie klatek na Canvasie przy użyciu `requestAnimationFrame`.
+
+2. **Graph Simulation Worker (Wątek Fizyki Grafu):**
+   * Prowadzi obliczenia siłowe metodą Barnes-Hut w przestrzeni wielowątkowej.
+   * Przekazuje do UI wyłącznie tablicę gotowych współrzędnych Float32Array: `[x1, y1, x2, y2, ...]`.
+
+3. **Indexer & SQLite Worker (Wątek Parsowania i Bazy):**
+   * Skanuje pliki Markdown po wykryciu zmian z debouncingiem.
+   * Wykonuje zapytania wyszukiwania pełnotekstowego FTS5 dla terminala `#links`
+     bez blokowania wpisywania znaków.
+
+4. **Heartbeat & Focus Worker (Niezależny Wątek Czasowy):**
+   * Działa w oparciu o `Worker` lub `SharedWorker`, dzięki czemu przeglądarka
+     ani system operacyjny nie spowalniają taktowania stopera po zminimalizowaniu okna.
+
+
+6.2. PEŁNY REJESTR ZDARZEŃ SYSTEMOWYCH (GLOBAL EVENT BUS SPECIFICATION)
+--------------------------------------------------------------------------------
+Komunikacja między modułami zachodzi asynchronicznie za pośrednictwem silnie
+typowanej szyny zdarzeń (Event Bus):
+
++----------------------------------+----------------------------------------------------+-----------------------------------------------+
+| Nazwa Zdarzenia (Event Name)     | Payload (Przekazywane Dane)                        | Odbiorcy (Subskrybenci)                       |
++----------------------------------+----------------------------------------------------+-----------------------------------------------+
+| `SESSION_CONFIG_STARTED`         | `{ timestamp: number }`                            | SessionEngine, UI Kickoff Modal               |
+| `SESSION_STARTED`                | `{ sessionId, plannedMin, taskIds: [] }`           | HeartbeatWorker, Pasek Sesji, DeltaBuffer     |
+| `SESSION_HEARTBEAT`              | `{ sessionId, focusSec, idleSec }`                 | Session HUD (#stats), Timer UI                |
+| `SESSION_AUTO_PAUSED`            | `{ reason: 'INACTIVITY_TIMEOUT', idleSec: 300 }`   | UI Overlay, Audio Chime                       |
+| `SESSION_FINISHED`               | `{ sessionId, effectiveSec, deltaSummary }`        | EvaluationModal (Krok 3), AnalyticsAggregator|
+| `SESSION_COMMITTED`              | `{ sessionId, userScore, streak }`                 | SQLiteStorage, FeedbackLoopService, UI Toast  |
++----------------------------------+----------------------------------------------------+-----------------------------------------------+
+| `NOTE_MUTATED`                   | `{ noteId, rawText, cursorPosition }`              | ASTParserWorker, AutoSaveService              |
+| `CANVAS_NODE_ADDED`              | `{ canvasId, node: CanvasNode }`                   | GraphEdgeIndexer, SessionDeltaBuffer          |
+| `CANVAS_EDGE_CREATED`            | `{ canvasId, edge: CanvasEdge }`                   | SQLiteStorage, GraphSimWorker, DeltaBuffer    |
+| `VISUAL_ENTITY_REGISTERED`       | `{ entityId, mediaHash, linkedNoteId }`            | AssetDrawerCache, FTS5Indexer, UI             |
+| `VISUAL_ENTITY_MUTATED`          | `{ entityId, changedFields: [] }`                  | Wszystkie otwarte Canvasy (Transclusion Sync) |
++----------------------------------+----------------------------------------------------+-----------------------------------------------+
+| `SRS_CARD_ANSWERED`              | `{ cardId, grade, newInterval, newStability }`     | SQLiteSRS, SessionDeltaBuffer, GraphNodeGlow  |
+| `TASK_STATE_CHANGED`             | `{ taskId, newStatus: 'COMPLETED' }`               | TaskBarUI, SQLiteStorage, SessionDeltaBuffer  |
+| `COMMAND_DISPATCHED`             | `{ rawCommand, parsed: ParsedCommand }`            | CommandRouter, AnalyticsLogger                |
++----------------------------------+----------------------------------------------------+-----------------------------------------------+
+
+
+6.3. ODPORNOŚĆ NA AWARIE, BEZPIECZEŃSTWO I ZAPIS DANYCH (DATA RESILIENCE)
+--------------------------------------------------------------------------------
+Utrata danych podczas intensywnej sesji nauki jest niedopuszczalna. System
+posiada 4 warstwy ochrony:
+
+1. **Atomowy Zapis Plików (Atomic Write Protocol):**
+   Podczas zapisu notatek `.md` oraz płócien `.canvas.json`:
+   a) Dane są najpierw zapisywane do pliku tymczasowego `.workspace/temp_<uuid>.tmp`.
+   b) Po pomyślnym zrzuceniu bufora na dysk (fsync), wykonywana jest atomowa
+      operacja zmiany nazwy (`fs.rename`), co wyklucza uszkodzenie pliku przy nagłym braku zasilania.
+
+2. **System Migawki Sesji w Locie (Crash Recovery Snapshot):**
+   Co 10 sekund trwania sesji w stanie `ACTIVE_FOCUS`, cały obiekt `SessionContext`
+   oraz `SessionDeltaBuffer` jest zrzucany do pliku `.workspace/session_current.json`.
+   W przypadku awarii komputera, przy ponownym uruchomieniu aplikacja wyświetla komunikat:
+   > ⚡ *"Wykryto przerwaną sesję nauki (42 minuty skupienia). Czy chcesz ją dokończyć i zapisać statystyki?"*
+
+3. **Dziennik Zdarzeń SQLite (Write-Ahead Logging - WAL):**
+   Baza SQLite działa stale w trybie `PRAGMA journal_mode = WAL`. Pozwala to na
+   jednoczesny, bezkolizyjny odczyt bazy przez wątek UI oraz zapis relacji przez Indexer Worker.
+
+4. **Wersjonowanie Notatek i Kopia Bezpieczeństwa (Local History Backups):**
+   Aplikacja przechowuje w tle lokalną historię zmian (Diff History) dla każdego
+   dokumentu z ostatnich 30 dni w katalogu `.workspace/history/`, umożliwiając
+   cofnięcie dowolnej pomyłkowej edycji.
+
+================================================================================
+KONIEC CZĘŚCI 6. PLIK ZOSTAŁ ZAPISANY DO czesc_6_event_bus_i_architektura_procesow.txt
+================================================================================
+
+================================================================================
+

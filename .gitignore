@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+out/
+dist/
+build/
+
+# Local workspace dynamic cache and DB (Local-First temporary test artifacts)
+.workspace/
+.cache/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and IDE settings
+.env
+.env.local
+.vscode/
+.idea/
