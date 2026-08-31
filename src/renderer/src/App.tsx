@@ -4,8 +4,8 @@ import { FileItem } from '../../shared/types/workspace'
 import { CanvasDocument } from '../../shared/types/canvas'
 import { TaskTodoRecord } from '../../shared/types/database'
 import { SessionManager } from './state/sessionStore'
-import { ParsedCommand } from '../../shared/types/commands'
-import { LayoutGrid, Share2, CheckSquare, BookOpen, BarChart2, X, Plus } from 'lucide-react'
+import { parseCliCommand, ParsedCommand } from '../../shared/types/commands'
+import { LayoutGrid, Share2, CheckSquare, BookOpen, BarChart2, X, Plus, FileText, AlignLeft, Terminal, CornerDownLeft } from 'lucide-react'
 
 // Components
 import { WorkspaceSelector } from './components/workspace/WorkspaceSelector'
@@ -15,10 +15,10 @@ import { SessionKickoffModal } from './components/session/SessionKickoffModal'
 import { SessionEvaluationModal } from './components/session/SessionEvaluationModal'
 import { SessionStatsHud } from './components/session/SessionStatsHud'
 import { CanvasViewport } from './components/canvas/CanvasViewport'
+import { MarkdownEditor } from './components/editor/MarkdownEditor'
 import { KnowledgeGraphViewport } from './components/graph/KnowledgeGraphViewport'
 import { TaskManagementView } from './components/tasks/TaskManagementView'
 import { CommandPalette } from './components/terminal/CommandPalette'
-import { BottomConsolePanel, LogEntry } from './components/terminal/BottomConsolePanel'
 import { AssetDrawer } from './components/drawer/AssetDrawer'
 import { SrsReviewRunner } from './components/review/SrsReviewRunner'
 import { AnalyticsModal } from './components/analytics/AnalyticsModal'
@@ -27,7 +27,7 @@ interface OpenTab {
   id: string
   path: string
   title: string
-  type: 'canvas' | 'graph' | 'tasks'
+  type: 'canvas' | 'md' | 'txt' | 'graph' | 'tasks'
 }
 
 export const App: React.FC = () => {
@@ -35,22 +35,26 @@ export const App: React.FC = () => {
   const [fileTree, setFileTree] = useState<FileItem[]>([])
   const [tasks, setTasks] = useState<TaskTodoRecord[]>([])
 
-  // Layout & Resizable Splitters
+  // Layout & Resizable Splitter
   const [sidebarWidth, setSidebarWidth] = useState(240)
-  const [consoleHeight, setConsoleHeight] = useState(130)
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
-  // Active view modes: 'canvas' | 'graph' | 'tasks'
-  const [activeType, setActiveType] = useState<'canvas' | 'graph' | 'tasks'>('canvas')
+  // Active view mode
+  const [activeType, setActiveType] = useState<'canvas' | 'md' | 'txt' | 'graph' | 'tasks'>('canvas')
 
   // Tabs state
   const [openTabs, setOpenTabs] = useState<OpenTab[]>([
-    { id: 'tab_canvas_1', path: 'canvases/Rozbiory_Polski.canvas.json', title: 'Rozbiory Polski', type: 'canvas' }
+    { id: 'tab_canvas_1', path: 'canvases/Rozbiory_Polski.canvas.json', title: 'Rozbiory Polski', type: 'canvas' },
+    { id: 'tab_note_1', path: 'notes/Historia/Poniatowski.md', title: 'Poniatowski', type: 'md' }
   ])
   const [activeTabId, setActiveTabId] = useState<string>('tab_canvas_1')
   const [activePath, setActivePath] = useState<string | null>('canvases/Rozbiory_Polski.canvas.json')
   const [canvasDoc, setCanvasDoc] = useState<CanvasDocument | null>(null)
+  const [textContent, setTextContent] = useState<string>('')
+
+  // Clean Bottom CLI Input
+  const [cliInput, setCliInput] = useState('')
 
   // Modals & Drawers
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -61,23 +65,6 @@ export const App: React.FC = () => {
   const [kickoffOpen, setKickoffOpen] = useState(false)
   const [evaluationOpen, setEvaluationOpen] = useState(false)
   const [drawerSearchQuery, setDrawerSearchQuery] = useState('')
-
-  // Console Logs
-  const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([
-    {
-      id: 'log_1',
-      timestamp: new Date().toLocaleTimeString(),
-      type: 'info',
-      message: 'System CogniCanvas v1.5 Master Edition zainicjalizowany. Baza SQLite WAL gotowa.'
-    }
-  ])
-
-  const addLog = (type: 'info' | 'success' | 'command' | 'warn', message: string) => {
-    setConsoleLogs((prev) => [
-      ...prev.slice(-100),
-      { id: `log_${Date.now()}_${Math.random()}`, timestamp: new Date().toLocaleTimeString(), type, message }
-    ])
-  }
 
   // Session Manager
   const sessionManagerRef = useRef<SessionManager>(new SessionManager())
@@ -148,7 +135,6 @@ export const App: React.FC = () => {
     setWorkspacePath(wsPath)
     await refreshFiles()
     await loadTasks()
-    addLog('success', `Załadowano przestrzeń roboczą: ${wsPath}`)
 
     // Default open canvas
     const sampleCanvasPath = 'canvases/Rozbiory_Polski.canvas.json'
@@ -183,7 +169,17 @@ export const App: React.FC = () => {
     }
   }
 
+  // Open file with format detection (.canvas, .md, .txt)
   const handleOpenFile = async (file: FileItem) => {
+    let fileType: 'canvas' | 'md' | 'txt' = 'txt'
+    if (file.name.includes('.canvas.') || file.name.endsWith('.canvas.json')) {
+      fileType = 'canvas'
+    } else if (file.name.endsWith('.md')) {
+      fileType = 'md'
+    } else {
+      fileType = 'txt'
+    }
+
     const tabId = `tab_${file.relativePath.replace(/[^a-zA-Z0-9]/g, '_')}`
 
     const existing = openTabs.find((t) => t.path === file.relativePath)
@@ -191,24 +187,45 @@ export const App: React.FC = () => {
       const newTab: OpenTab = {
         id: tabId,
         path: file.relativePath,
-        title: file.name.replace(/\.(canvas\.json|json|md)$/, ''),
-        type: 'canvas'
+        title: file.name.replace(/\.(canvas\.json|json|md|txt)$/, ''),
+        type: fileType
       }
       setOpenTabs((prev) => [...prev, newTab])
     }
 
     setActiveTabId(existing ? existing.id : tabId)
     setActivePath(file.relativePath)
-    setActiveType('canvas')
+    setActiveType(fileType)
 
     try {
       const res = await window.electronAPI.invoke(IpcChannel.FILE_READ, { relativePath: file.relativePath })
-      if (res.content) {
+      if (fileType === 'canvas' && res.content) {
         setCanvasDoc(JSON.parse(res.content))
-        addLog('info', `Otwarto tablicę: ${file.name}`)
+      } else {
+        setTextContent(res.content || '')
       }
     } catch (err) {
       console.error('Failed to read file:', err)
+    }
+  }
+
+  // Tab switching on the top bar
+  const handleSelectTab = async (tab: OpenTab) => {
+    setActiveTabId(tab.id)
+    setActivePath(tab.path)
+    setActiveType(tab.type)
+
+    if (tab.type === 'canvas' || tab.type === 'md' || tab.type === 'txt') {
+      try {
+        const res = await window.electronAPI.invoke(IpcChannel.FILE_READ, { relativePath: tab.path })
+        if (tab.type === 'canvas' && res.content) {
+          setCanvasDoc(JSON.parse(res.content))
+        } else {
+          setTextContent(res.content || '')
+        }
+      } catch (err) {
+        console.error('Failed to read file for tab:', err)
+      }
     }
   }
 
@@ -218,9 +235,7 @@ export const App: React.FC = () => {
     setOpenTabs(remaining)
     if (activeTabId === tabId && remaining.length > 0) {
       const next = remaining[remaining.length - 1]
-      setActiveTabId(next.id)
-      setActivePath(next.path)
-      setActiveType(next.type)
+      handleSelectTab(next)
     }
   }
 
@@ -248,7 +263,7 @@ export const App: React.FC = () => {
     window.addEventListener('mouseup', onMouseUp)
   }
 
-  // File & Folder CRUD operations
+  // File Creation Handlers for the 3 Formats
   const handleNewCanvas = async (folderPath = 'canvases') => {
     const title = prompt('Podaj nazwę nowej tablicy:', 'Nowa Tablica')
     if (!title) return
@@ -270,11 +285,40 @@ export const App: React.FC = () => {
       createBackup: true
     })
     await refreshFiles()
-    addLog('success', `Utworzono nową tablicę: ${relativePath}`)
     handleOpenFile({ name: filename, relativePath, type: 'file', updatedAt: Date.now() })
   }
 
-  const handleCreateFolder = async (parentPath = 'canvases') => {
+  const handleNewMarkdown = async (folderPath = 'notes') => {
+    const title = prompt('Podaj tytuł nowej notatki Markdown:', 'Notatka')
+    if (!title) return
+    const filename = `${title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_')}.md`
+    const relativePath = `${folderPath}/${filename}`
+
+    await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
+      relativePath,
+      content: `# ${title}\n\nZacznij pisać treść notatki...`,
+      createBackup: true
+    })
+    await refreshFiles()
+    handleOpenFile({ name: filename, relativePath, type: 'file', updatedAt: Date.now() })
+  }
+
+  const handleNewPlainText = async (folderPath = 'notes') => {
+    const title = prompt('Podaj nazwę pliku tekstowego:', 'Tekst')
+    if (!title) return
+    const filename = `${title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_')}.txt`
+    const relativePath = `${folderPath}/${filename}`
+
+    await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
+      relativePath,
+      content: `${title}\n\nWpisz treść...`,
+      createBackup: true
+    })
+    await refreshFiles()
+    handleOpenFile({ name: filename, relativePath, type: 'file', updatedAt: Date.now() })
+  }
+
+  const handleCreateFolder = async (parentPath = 'notes') => {
     const folderName = prompt('Podaj nazwę nowego folderu:', 'Nowy Folder')
     if (!folderName) return
     const cleanName = folderName.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_')
@@ -282,14 +326,12 @@ export const App: React.FC = () => {
 
     await window.electronAPI.invoke(IpcChannel.FILE_CREATE_FOLDER, { relativePath })
     await refreshFiles()
-    addLog('success', `Utworzono folder: ${relativePath}`)
   }
 
   const handleRenamePath = async (oldPath: string, newName: string) => {
     try {
       const res = await window.electronAPI.invoke(IpcChannel.FILE_RENAME, { oldPath, newName })
       if (res.success && res.newPath) {
-        addLog('info', `Zmieniono nazwę ${oldPath} -> ${res.newPath}`)
         await refreshFiles()
       }
     } catch (err) {
@@ -305,7 +347,6 @@ export const App: React.FC = () => {
         setActivePath(null)
       }
       await refreshFiles()
-      addLog('warn', `Usunięto fizycznie z dysku: ${relativePath}`)
     } catch (err) {
       console.error('Delete failed:', err)
     }
@@ -316,7 +357,6 @@ export const App: React.FC = () => {
     sessionManagerRef.current.startSession(plannedMins, selectedTaskIds)
     syncSessionState()
     setKickoffOpen(false)
-    addLog('info', `Rozpoczęto sesję skupienia na ${plannedMins} minut.`)
   }
 
   const handleCommitSession = async (evalScore: number) => {
@@ -348,7 +388,6 @@ export const App: React.FC = () => {
       })
       await window.electronAPI.invoke(IpcChannel.RECOVERY_CLEAR_SNAPSHOT, undefined)
       await loadTasks()
-      addLog('success', `Zapisano sesję! Ocena zrozumienia: ${evalScore.toFixed(1)}/5.0.`)
     } catch (err) {
       console.error('Failed to save session history:', err)
     }
@@ -366,16 +405,14 @@ export const App: React.FC = () => {
         completedAt: newStatus === 'COMPLETED' ? Date.now() : null
       })
       await loadTasks()
-      addLog('info', `Zadanie ${current?.title}: ${newStatus === 'COMPLETED' ? 'Ukończono' : 'Przywrócono'}`)
     } catch (err) {
       console.error('Task update failed:', err)
     }
   }
 
-  // CLI Command Execution
+  // CLI Command Execution (Clean, no spam)
   const handleExecuteCommand = async (cmd: ParsedCommand) => {
     const commandName = cmd.command.toLowerCase()
-    addLog('command', `Wykonano: #${commandName} ${cmd.primaryArgument || ''}`)
 
     if (commandName === 'links' || commandName === 'asset') {
       setDrawerSearchQuery(cmd.primaryArgument || '')
@@ -425,7 +462,16 @@ export const App: React.FC = () => {
         topicId: cmd.flags.targetCanvas
       })
       await loadTasks()
-      addLog('success', `Dodano nowe zadanie: ${title} [${prio}]`)
+    }
+  }
+
+  const handleCliKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && cliInput.trim()) {
+      const parsed = parseCliCommand(cliInput.trim())
+      if (parsed) {
+        handleExecuteCommand(parsed)
+        setCliInput('')
+      }
     }
   }
 
@@ -471,7 +517,7 @@ export const App: React.FC = () => {
             title="Tablice Canvas (Siatka)"
             className={`p-2.5 rounded-xl transition-all ${
               activeType === 'canvas'
-                ? 'bg-[#27272a] text-[#38bdf8] shadow-md ring-1 ring-[#38bdf8]/30'
+                ? 'bg-[#27272a] text-[#a855f7] shadow-md ring-1 ring-[#a855f7]/40'
                 : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
             }`}
           >
@@ -483,7 +529,7 @@ export const App: React.FC = () => {
             title="Graf Wiedzy (Graph View)"
             className={`p-2.5 rounded-xl transition-all ${
               activeType === 'graph'
-                ? 'bg-[#27272a] text-[#a855f7] shadow-md ring-1 ring-[#a855f7]/30'
+                ? 'bg-[#27272a] text-[#38bdf8] shadow-md ring-1 ring-[#38bdf8]/40'
                 : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
             }`}
           >
@@ -495,7 +541,7 @@ export const App: React.FC = () => {
             title="Zadania & Checklist (To-Do)"
             className={`p-2.5 rounded-xl transition-all ${
               activeType === 'tasks'
-                ? 'bg-[#27272a] text-[#10b981] shadow-md ring-1 ring-[#10b981]/30'
+                ? 'bg-[#27272a] text-[#10b981] shadow-md ring-1 ring-[#10b981]/40'
                 : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
             }`}
           >
@@ -535,6 +581,8 @@ export const App: React.FC = () => {
               onOpenAnalytics={() => setAnalyticsModalOpen(true)}
               onRefreshFiles={refreshFiles}
               onNewCanvas={(folder) => handleNewCanvas(folder)}
+              onNewMarkdown={(folder) => handleNewMarkdown(folder)}
+              onNewPlainText={(folder) => handleNewPlainText(folder)}
               onCreateFolder={(parent) => handleCreateFolder(parent)}
               onDeletePath={handleDeletePath}
               onRenamePath={handleRenamePath}
@@ -554,22 +602,24 @@ export const App: React.FC = () => {
           {/* Tabs Bar */}
           <div className="h-9 bg-[#111114] border-b border-[#27272a] flex items-center px-1.5 overflow-x-auto no-scrollbar gap-1 text-xs shrink-0">
             {openTabs.map((tab) => {
-              const isActive = activePath === tab.path && activeType === 'canvas'
+              const isActive = activeTabId === tab.id
               return (
                 <div
                   key={tab.id}
-                  onClick={() => {
-                    setActivePath(tab.path)
-                    setActiveType('canvas')
-                    setActiveTabId(tab.id)
-                  }}
+                  onClick={() => handleSelectTab(tab)}
                   className={`h-7 px-3 rounded-lg flex items-center gap-2 cursor-pointer text-[11px] transition-all ${
                     isActive
                       ? 'bg-[#18181b] text-[#f4f4f5] font-semibold border border-[#3f3f46] shadow-sm'
                       : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
                   }`}
                 >
-                  <LayoutGrid className="w-3.5 h-3.5 text-[#38bdf8]" />
+                  {tab.type === 'canvas' ? (
+                    <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7]" />
+                  ) : tab.type === 'md' ? (
+                    <FileText className="w-3.5 h-3.5 text-[#38bdf8]" />
+                  ) : (
+                    <AlignLeft className="w-3.5 h-3.5 text-[#10b981]" />
+                  )}
                   <span className="truncate max-w-[140px]">{tab.title}</span>
                   <button
                     onClick={(e) => handleCloseTab(e, tab.id)}
@@ -589,7 +639,7 @@ export const App: React.FC = () => {
             )}
 
             {activeType === 'graph' && (
-              <div className="h-7 px-3 rounded-lg flex items-center gap-2 text-[11px] bg-[#18181b] text-[#a855f7] font-semibold border border-[#a855f7]/40">
+              <div className="h-7 px-3 rounded-lg flex items-center gap-2 text-[11px] bg-[#18181b] text-[#38bdf8] font-semibold border border-[#38bdf8]/40">
                 <Share2 className="w-3.5 h-3.5" />
                 <span>Graf Wiedzy</span>
               </div>
@@ -633,21 +683,68 @@ export const App: React.FC = () => {
                   handleOpenFile({ name: canvasPath.split('/').pop() || 'canvas.json', relativePath: canvasPath, type: 'file', updatedAt: Date.now() })
                 }}
               />
+            ) : activeType === 'md' && activePath ? (
+              <MarkdownEditor
+                relativePath={activePath}
+                initialContent={textContent}
+                onContentChanged={(newText) => setTextContent(newText)}
+                onActivity={() => sessionManagerRef.current.registerActivity()}
+              />
+            ) : activeType === 'txt' && activePath ? (
+              <div className="h-full w-full bg-[#0c0d10] p-6 md:p-8 overflow-y-auto">
+                <div className="max-w-3xl mx-auto h-full flex flex-col">
+                  <textarea
+                    value={textContent}
+                    onChange={async (e) => {
+                      const newText = e.target.value
+                      setTextContent(newText)
+                      if (activePath) {
+                        await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
+                          relativePath: activePath,
+                          content: newText,
+                          createBackup: false
+                        })
+                      }
+                    }}
+                    placeholder="Zacznij pisać..."
+                    className="w-full flex-1 bg-transparent text-[#f4f4f5] font-mono text-xs focus:outline-none resize-none leading-relaxed placeholder-[#52525b]"
+                  />
+                </div>
+              </div>
             ) : (
               <div className="h-full flex items-center justify-center text-[#71717a] text-xs">
-                Wybierz tablicę z eksploratora plików lub utwórz nową.
+                Wybierz plik z drzewa lub kliknij + aby utworzyć notatkę.
               </div>
             )}
           </main>
 
-          {/* Bottom Solid Resizable Console & CLI */}
-          <BottomConsolePanel
-            height={consoleHeight}
-            onHeightChange={(h) => setConsoleHeight(h)}
-            onExecuteCommand={handleExecuteCommand}
-            logs={consoleLogs}
-            onClearLogs={() => setConsoleLogs([])}
-          />
+          {/* Ultra-Clean Bottom CLI Input Bar (No spammy notifications/logs) */}
+          <footer className="h-7 bg-[#09090b] border-t border-[#27272a] flex items-center px-3 gap-2 text-xs font-mono select-none shrink-0 z-30">
+            <Terminal className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+            <span className="text-[#38bdf8] font-bold text-[11px] shrink-0">cli&gt;</span>
+            <input
+              type="text"
+              value={cliInput}
+              onChange={(e) => setCliInput(e.target.value)}
+              onKeyDown={handleCliKeyDown}
+              placeholder="Wpisz komendę (#todo Zadanie, #canvas Tablica, #test [P]|[O], #review)..."
+              className="flex-1 bg-transparent text-[#f4f4f5] placeholder-[#52525b] text-[11px] font-mono focus:outline-none"
+            />
+            {cliInput.trim() && (
+              <button
+                onClick={() => {
+                  const parsed = parseCliCommand(cliInput.trim())
+                  if (parsed) {
+                    handleExecuteCommand(parsed)
+                    setCliInput('')
+                  }
+                }}
+                className="p-0.5 rounded text-[#38bdf8] hover:bg-[#27272a]"
+              >
+                <CornerDownLeft className="w-3 h-3" />
+              </button>
+            )}
+          </footer>
         </div>
 
         {/* Right Asset Drawer */}
@@ -656,7 +753,7 @@ export const App: React.FC = () => {
           initialQuery={drawerSearchQuery}
           onClose={() => setDrawerOpen(false)}
           onOpenNote={(path) => {
-            handleOpenFile({ name: path.split('/').pop() || 'canvas.json', relativePath: path, type: 'file', updatedAt: Date.now() })
+            handleOpenFile({ name: path.split('/').pop() || 'note.md', relativePath: path, type: 'file', updatedAt: Date.now() })
           }}
         />
       </div>

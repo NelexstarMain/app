@@ -12,7 +12,8 @@ import {
   Plus,
   Trash2,
   Edit3,
-  MoreVertical,
+  FileText,
+  AlignLeft,
   CheckSquare
 } from 'lucide-react'
 import { FileItem } from '../../../../shared/types/workspace'
@@ -29,6 +30,8 @@ interface Props {
   onOpenAnalytics: () => void
   onRefreshFiles: () => void
   onNewCanvas: (folderPath?: string) => void
+  onNewMarkdown: (folderPath?: string) => void
+  onNewPlainText: (folderPath?: string) => void
   onCreateFolder?: (parentPath?: string) => void
   onDeletePath?: (relativePath: string) => void
   onRenamePath?: (oldPath: string, newName: string) => void
@@ -45,16 +48,20 @@ export const FileSidebar: React.FC<Props> = ({
   onOpenAnalytics,
   onRefreshFiles,
   onNewCanvas,
+  onNewMarkdown,
+  onNewPlainText,
   onCreateFolder,
   onDeletePath,
   onRenamePath
 }) => {
   const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({
     canvases: true,
-    'canvases/Historia': true
+    notes: true,
+    'notes/Historia': true
   })
   const [isReindexing, setIsReindexing] = useState(false)
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
+  const [newMenuOpen, setNewMenuOpen] = useState(false)
 
   const toggleDir = (dirPath: string) => {
     setExpandedDirs((prev) => ({ ...prev, [dirPath]: !prev[dirPath] }))
@@ -79,6 +86,16 @@ export const FileSidebar: React.FC<Props> = ({
     return raw
   }
 
+  const getFileIcon = (fileName: string) => {
+    if (fileName.includes('.canvas.')) {
+      return <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7] shrink-0" />
+    }
+    if (fileName.endsWith('.md')) {
+      return <FileText className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+    }
+    return <AlignLeft className="w-3.5 h-3.5 text-[#10b981] shrink-0" />
+  }
+
   const renderItem = (item: FileItem, depth = 0) => {
     const isDir = item.type === 'directory'
     const isExpanded = expandedDirs[item.relativePath] || false
@@ -90,7 +107,7 @@ export const FileSidebar: React.FC<Props> = ({
           <div
             onMouseEnter={() => setHoveredItem(item.relativePath)}
             onMouseLeave={() => setHoveredItem(null)}
-            className="group flex items-center justify-between py-1.5 px-2 rounded-lg text-xs text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors cursor-pointer"
+            className="group flex items-center justify-between py-1 px-2 rounded-lg text-xs text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors cursor-pointer"
             style={{ paddingLeft: `${depth * 12 + 6}px` }}
           >
             <button
@@ -113,10 +130,20 @@ export const FileSidebar: React.FC<Props> = ({
                     e.stopPropagation()
                     onNewCanvas(item.relativePath)
                   }}
-                  title="Nowa tablica w tym folderze"
-                  className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#f4f4f5]"
+                  title="Nowa tablica w folderze"
+                  className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#a855f7]"
                 >
-                  <Plus className="w-3 h-3" />
+                  <LayoutGrid className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onNewMarkdown(item.relativePath)
+                  }}
+                  title="Nowa notatka .md w folderze"
+                  className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#38bdf8]"
+                >
+                  <FileText className="w-3 h-3" />
                 </button>
                 {onDeletePath && (
                   <button
@@ -148,7 +175,7 @@ export const FileSidebar: React.FC<Props> = ({
         key={item.relativePath}
         onMouseEnter={() => setHoveredItem(item.relativePath)}
         onMouseLeave={() => setHoveredItem(null)}
-        className={`group flex items-center justify-between py-1.5 px-2 rounded-lg text-xs transition-colors cursor-pointer ${
+        className={`group flex items-center justify-between py-1 px-2 rounded-lg text-xs transition-colors cursor-pointer ${
           isActive
             ? 'bg-[#18181b] text-[#f4f4f5] font-semibold border-l-2 border-[#38bdf8]'
             : 'text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#111114]'
@@ -159,8 +186,8 @@ export const FileSidebar: React.FC<Props> = ({
           onClick={() => onOpenFile(item)}
           className="flex items-center gap-2 flex-1 text-left truncate"
         >
-          <LayoutGrid className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
-          <span className="truncate text-[11px]">{item.name.replace(/\.(canvas\.json|json|md)$/, '')}</span>
+          {getFileIcon(item.name)}
+          <span className="truncate text-[11px]">{item.name.replace(/\.(canvas\.json|json|md|txt)$/, '')}</span>
         </button>
 
         {hoveredItem === item.relativePath && (
@@ -213,23 +240,62 @@ export const FileSidebar: React.FC<Props> = ({
           </span>
         </div>
 
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1 relative">
           <button
-            onClick={() => onNewCanvas()}
-            title="Nowa tablica (.canvas.json)"
+            onClick={() => setNewMenuOpen(!newMenuOpen)}
+            title="Nowy plik / folder"
             className="p-1 rounded-md text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors"
           >
             <Plus className="w-4 h-4 text-[#38bdf8]" />
           </button>
-          {onCreateFolder && (
-            <button
-              onClick={() => onCreateFolder()}
-              title="Nowy folder"
-              className="p-1 rounded-md text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors"
-            >
-              <FolderPlus className="w-4 h-4 text-[#f59e0b]" />
-            </button>
+
+          {newMenuOpen && (
+            <div className="absolute right-0 top-8 w-44 p-1 rounded-xl bg-[#18181b] border border-[#3f3f46] shadow-2xl z-50 flex flex-col gap-0.5 text-xs">
+              <button
+                onClick={() => {
+                  setNewMenuOpen(false)
+                  onNewCanvas()
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-[#27272a] text-[#f4f4f5] text-left"
+              >
+                <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7]" />
+                <span>Nowa Tablica (.canvas)</span>
+              </button>
+              <button
+                onClick={() => {
+                  setNewMenuOpen(false)
+                  onNewMarkdown()
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-[#27272a] text-[#f4f4f5] text-left"
+              >
+                <FileText className="w-3.5 h-3.5 text-[#38bdf8]" />
+                <span>Notatka (.md)</span>
+              </button>
+              <button
+                onClick={() => {
+                  setNewMenuOpen(false)
+                  onNewPlainText()
+                }}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-[#27272a] text-[#f4f4f5] text-left"
+              >
+                <AlignLeft className="w-3.5 h-3.5 text-[#10b981]" />
+                <span>Czysty Tekst (.txt)</span>
+              </button>
+              {onCreateFolder && (
+                <button
+                  onClick={() => {
+                    setNewMenuOpen(false)
+                    onCreateFolder()
+                  }}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-[#27272a] text-[#f4f4f5] text-left border-t border-[#27272a]"
+                >
+                  <FolderPlus className="w-3.5 h-3.5 text-[#f59e0b]" />
+                  <span>Nowy Folder</span>
+                </button>
+              )}
+            </div>
           )}
+
           <button
             onClick={handleColdReindex}
             title="Odśwież i reindeksuj (Cold Reindex)"
@@ -276,15 +342,9 @@ export const FileSidebar: React.FC<Props> = ({
       <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
         <div className="flex items-center justify-between px-2 py-1 mb-1">
           <span className="text-[10px] font-bold uppercase tracking-wider text-[#52525b]">
-            Tablice & Foldery
+            Pliki & Notatki
           </span>
-          <button
-            onClick={() => onNewCanvas()}
-            className="text-[10px] text-[#38bdf8] hover:underline flex items-center gap-0.5"
-          >
-            <Plus className="w-3 h-3" />
-            <span>Nowa</span>
-          </button>
+          <span className="text-[10px] text-[#71717a] font-mono">.canvas / .md / .txt</span>
         </div>
         {fileTree.map((item) => renderItem(item))}
       </div>

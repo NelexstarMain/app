@@ -8,16 +8,15 @@ import {
   User,
   HelpCircle,
   Eye,
-  EyeOff,
   Edit2,
   Trash2,
   Link2,
   FileText,
-  Palette,
+  Layers,
   ChevronUp,
   ChevronDown,
-  Layers,
-  Sparkles
+  Sparkles,
+  Move
 } from 'lucide-react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
 
@@ -46,16 +45,19 @@ export const CanvasViewport: React.FC<Props> = ({
   const [penWidth, setPenWidth] = useState(3)
 
   // Infinite Viewport Pan & Zoom
-  const [pan, setPan] = useState({ x: document.viewport.x || 0, y: document.viewport.y || 0 })
-  const [zoom, setZoom] = useState(document.viewport.zoom || 1.0)
+  const [pan, setPan] = useState({ x: document.viewport?.x || 0, y: document.viewport?.y || 0 })
+  const [zoom, setZoom] = useState(document.viewport?.zoom || 1.0)
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState({ x: 0, y: 0 })
 
-  // Node selection & dragging
+  // Node selection, dragging & resizing
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [resizingNodeId, setResizingNodeId] = useState<string | null>(null)
+  const [resizeStart, setResizeStart] = useState({ width: 0, height: 0, mouseX: 0, mouseY: 0 })
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
+  const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null)
 
   // Freehand drawing stroke
   const [currentStroke, setCurrentStroke] = useState<Array<{ x: number; y: number }>>([])
@@ -84,7 +86,7 @@ export const CanvasViewport: React.FC<Props> = ({
     const handlePaste = async (e: ClipboardEvent) => {
       const activeEl = window.document.activeElement
       if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
-        return // Let input handle regular text pasting
+        return
       }
 
       const items = e.clipboardData?.items
@@ -139,7 +141,7 @@ export const CanvasViewport: React.FC<Props> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = window.document.activeElement
       if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
-        return // NEVER intercept keyboard when typing in inputs/textareas
+        return
       }
       if (editingNodeId) return
 
@@ -190,6 +192,24 @@ export const CanvasViewport: React.FC<Props> = ({
     }
   }
 
+  // Jump to Linked Node [hasło]
+  const handleJumpToLinkedNode = (keyword: string) => {
+    const cleanKey = keyword.toLowerCase().trim()
+    const target = doc.nodes.find((n) => {
+      const t = (n.data?.title || n.data?.label || n.data?.text || n.data?.question || '').toLowerCase()
+      return t.includes(cleanKey)
+    })
+
+    if (target) {
+      const targetPanX = -target.x * zoom + (window.innerWidth / 2) - ((target.width * zoom) / 2)
+      const targetPanY = -target.y * zoom + (window.innerHeight / 2) - ((target.height * zoom) / 2)
+      setPan({ x: targetPanX, y: targetPanY })
+      setHighlightedNodeId(target.id)
+      setSelectedNodeIds([target.id])
+      setTimeout(() => setHighlightedNodeId(null), 2000)
+    }
+  }
+
   // Mouse Down (Includes Right Mouse Button Pan)
   const handleMouseDown = (e: React.MouseEvent) => {
     onActivity()
@@ -221,7 +241,7 @@ export const CanvasViewport: React.FC<Props> = ({
           height: 180,
           data: {
             title: 'Notatka',
-            markdown: 'Zacznij pisać treść notatki...'
+            markdown: 'Zacznij pisać treść notatki... Użyj [hasło], aby podlinkować inny box!'
           }
         }
         notifyChange({ ...doc, nodes: [...doc.nodes, newNode] })
@@ -238,11 +258,11 @@ export const CanvasViewport: React.FC<Props> = ({
           type: 'sticky_note',
           x: Math.round(world.x),
           y: Math.round(world.y),
-          width: 190,
-          height: 190,
+          width: 200,
+          height: 200,
           data: {
             text: 'Wpisz myśl...',
-            color: 'yellow'
+            color: 'sand'
           }
         }
         notifyChange({ ...doc, nodes: [...doc.nodes, newNode] })
@@ -265,7 +285,7 @@ export const CanvasViewport: React.FC<Props> = ({
             shapeType: activeTool,
             label: activeTool === 'rectangle' ? 'Obszar / Sekcja' : 'Pojęcie',
             text: '',
-            fillColor: 'rgba(39, 39, 42, 0.5)',
+            fillColor: 'rgba(26, 38, 31, 0.6)',
             borderColor: '#38bdf8'
           }
         }
@@ -320,6 +340,21 @@ export const CanvasViewport: React.FC<Props> = ({
     } else if (isDrawing && activeTool === 'pen') {
       setCurrentStroke((prev) => [...prev, { x: world.x, y: world.y }])
       onActivity()
+    } else if (resizingNodeId) {
+      const deltaX = (e.clientX - resizeStart.mouseX) / zoom
+      const deltaY = (e.clientY - resizeStart.mouseY) / zoom
+      const updated = doc.nodes.map((n) => {
+        if (n.id === resizingNodeId) {
+          return {
+            ...n,
+            width: Math.max(120, Math.round(resizeStart.width + deltaX)),
+            height: Math.max(80, Math.round(resizeStart.height + deltaY))
+          }
+        }
+        return n
+      })
+      setDoc({ ...doc, nodes: updated })
+      onActivity()
     } else if (draggedNodeId) {
       const updated = doc.nodes.map((n) => {
         if (n.id === draggedNodeId) {
@@ -363,6 +398,11 @@ export const CanvasViewport: React.FC<Props> = ({
       notifyChange({ ...doc, nodes: [...doc.nodes, newStrokeNode] })
       setCurrentStroke([])
       setIsDrawing(false)
+    }
+
+    if (resizingNodeId) {
+      setResizingNodeId(null)
+      onDocumentChanged(doc)
     }
 
     if (draggedNodeId) {
@@ -501,15 +541,55 @@ export const CanvasViewport: React.FC<Props> = ({
     return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y }
   }
 
+  // Refined Muted Pastel Colors
   const getStickyBgClass = (color: string) => {
     switch (color) {
-      case 'yellow': return 'bg-[#3d3416] border-[#854d0e]/60 text-[#fef08a]'
-      case 'blue': return 'bg-[#172554] border-[#1e40af]/60 text-[#bfdbfe]'
-      case 'green': return 'bg-[#143322] border-[#15803d]/60 text-[#bbf7d0]'
-      case 'purple': return 'bg-[#2e1065] border-[#6b21a8]/60 text-[#e9d5ff]'
-      case 'rose': return 'bg-[#4c0519] border-[#9f1239]/60 text-[#fecdd3]'
-      default: return 'bg-[#27272a] border-[#3f3f46] text-[#f4f4f5]'
+      case 'sage':
+      case 'green':
+        return 'bg-[#1a261f] border-[#2d4a37] text-[#c2e4cf]'
+      case 'rose':
+      case 'pink':
+        return 'bg-[#2a1b22] border-[#52303f] text-[#f2cad9]'
+      case 'lavender':
+      case 'purple':
+        return 'bg-[#201d2d] border-[#3e3659] text-[#ded7f7]'
+      case 'sand':
+      case 'yellow':
+        return 'bg-[#26231a] border-[#4a4128] text-[#f5ebd2]'
+      case 'ocean':
+      case 'blue':
+        return 'bg-[#18232e] border-[#293f54] text-[#cae2f7]'
+      default:
+        return 'bg-[#26231a] border-[#4a4128] text-[#f5ebd2]'
     }
+  }
+
+  // Render text with interactive [hasło] jump links
+  const renderLinkedText = (text: string) => {
+    if (!text) return null
+    const parts = text.split(/(\[\[?[^\]]+\]?\])/g)
+
+    return parts.map((part, idx) => {
+      const match = /^\[\[?([^\]]+)\]?\]$/.exec(part)
+      if (match) {
+        const keyword = match[1]
+        return (
+          <span
+            key={idx}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleJumpToLinkedNode(keyword)
+            }}
+            className="inline-flex items-center gap-0.5 px-1 py-0.2 mx-0.5 rounded bg-[#38bdf8]/20 hover:bg-[#38bdf8]/35 text-[#38bdf8] border border-[#38bdf8]/40 cursor-pointer font-semibold transition-colors"
+            title={`Przejdź do: ${keyword}`}
+          >
+            <Link2 className="w-2.5 h-2.5" />
+            <span>{keyword}</span>
+          </span>
+        )
+      }
+      return <span key={idx}>{part}</span>
+    })
   }
 
   return (
@@ -520,6 +600,10 @@ export const CanvasViewport: React.FC<Props> = ({
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onWheel={handleWheel}
+      style={{
+        backgroundPosition: `${pan.x}px ${pan.y}px`,
+        backgroundSize: `${24 * zoom}px ${24 * zoom}px`
+      }}
       className={`h-full w-full canvas-grid relative overflow-hidden select-none ${
         activeTool === 'hand' || isPanning ? 'cursor-grab active:cursor-grabbing' : activeTool === 'pen' ? 'cursor-crosshair' : 'cursor-default'
       }`}
@@ -673,6 +757,7 @@ export const CanvasViewport: React.FC<Props> = ({
           .filter((n) => n.type !== 'drawing_stroke')
           .map((node) => {
             const isSelected = selectedNodeIds.includes(node.id)
+            const isHighlighted = highlightedNodeId === node.id
 
             return (
               <div
@@ -697,7 +782,11 @@ export const CanvasViewport: React.FC<Props> = ({
                   }
                 }}
                 className={`absolute pointer-events-auto rounded-2xl transition-all shadow-xl ${
-                  isSelected ? 'ring-2 ring-[#38bdf8] shadow-2xl scale-[1.01]' : 'hover:ring-1 hover:ring-[#3f3f46]'
+                  isHighlighted
+                    ? 'ring-4 ring-[#10b981] scale-105 shadow-2xl animate-pulse'
+                    : isSelected
+                    ? 'ring-2 ring-[#38bdf8] shadow-2xl scale-[1.01]'
+                    : 'hover:ring-1 hover:ring-[#3f3f46]'
                 }`}
               >
                 {/* 4 Connection Anchors */}
@@ -705,7 +794,7 @@ export const CanvasViewport: React.FC<Props> = ({
 
                 {/* 1. Markdown Text Card */}
                 {node.type === 'text_card' && (
-                  <div className="h-full w-full p-4 rounded-2xl bg-[#18181b] border border-[#27272a] flex flex-col justify-between text-xs">
+                  <div className="h-full w-full p-4 rounded-2xl bg-[#18181b] border border-[#27272a] flex flex-col justify-between text-xs break-words overflow-hidden">
                     {editingNodeId === node.id ? (
                       <div
                         onKeyDown={(e) => e.stopPropagation()}
@@ -727,19 +816,16 @@ export const CanvasViewport: React.FC<Props> = ({
                         <textarea
                           value={node.data.markdown || ''}
                           onChange={(e) => {
+                            const newHeight = Math.max(160, e.target.scrollHeight + 40)
                             const updated = doc.nodes.map((n) =>
                               n.id === node.id
-                                ? {
-                                    ...n,
-                                    height: Math.max(160, e.target.scrollHeight + 50),
-                                    data: { ...n.data, markdown: e.target.value }
-                                  }
+                                ? { ...n, height: newHeight, data: { ...n.data, markdown: e.target.value } }
                                 : n
                             )
                             setDoc({ ...doc, nodes: updated })
                           }}
-                          placeholder="Treść notatki..."
-                          className="flex-1 bg-transparent text-[#f4f4f5] resize-none focus:outline-none font-mono text-[11px] min-h-[90px]"
+                          placeholder="Treść notatki... (użyj [hasło] do linkowania)"
+                          className="flex-1 bg-transparent text-[#f4f4f5] resize-none focus:outline-none font-mono text-[11px] min-h-[90px] break-words break-all"
                         />
                         <button
                           onClick={() => {
@@ -754,23 +840,23 @@ export const CanvasViewport: React.FC<Props> = ({
                     ) : (
                       <div onDoubleClick={() => setEditingNodeId(node.id)}>
                         <div className="font-semibold text-[#f4f4f5] mb-2 pb-1.5 border-b border-[#27272a] flex items-center justify-between">
-                          <span>{node.data.title || 'Notatka'}</span>
-                          <Edit2 className="w-3 h-3 text-[#71717a] opacity-60 hover:opacity-100 cursor-pointer" />
+                          <span className="truncate">{node.data.title || 'Notatka'}</span>
+                          <Edit2 className="w-3 h-3 text-[#71717a] opacity-60 hover:opacity-100 cursor-pointer shrink-0" />
                         </div>
-                        <div className="text-[11px] text-[#a1a1aa] leading-relaxed whitespace-pre-wrap">
-                          {node.data.markdown}
+                        <div className="text-[11px] text-[#a1a1aa] leading-relaxed whitespace-pre-wrap break-words break-all" style={{ overflowWrap: 'anywhere' }}>
+                          {renderLinkedText(node.data.markdown)}
                         </div>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* 2. Sticky Note */}
+                {/* 2. Sticky Note with Pastel Colors & Word Wrap */}
                 {node.type === 'sticky_note' && (
                   <div
                     onDoubleClick={() => setEditingNodeId(node.id)}
-                    className={`h-full w-full p-4 rounded-2xl border flex flex-col justify-between shadow-lg text-xs transition-colors ${getStickyBgClass(
-                      node.data.color || 'yellow'
+                    className={`h-full w-full p-4 rounded-2xl border flex flex-col justify-between shadow-lg text-xs transition-colors overflow-hidden break-words ${getStickyBgClass(
+                      node.data.color || 'sand'
                     )}`}
                   >
                     {editingNodeId === node.id ? (
@@ -782,31 +868,37 @@ export const CanvasViewport: React.FC<Props> = ({
                         <textarea
                           value={node.data.text || ''}
                           onChange={(e) => {
+                            const newHeight = Math.max(180, e.target.scrollHeight + 60)
                             const updated = doc.nodes.map((n) =>
                               n.id === node.id
-                                ? { ...n, height: Math.max(180, e.target.scrollHeight + 60), data: { ...n.data, text: e.target.value } }
+                                ? { ...n, height: newHeight, data: { ...n.data, text: e.target.value } }
                                 : n
                             )
                             setDoc({ ...doc, nodes: updated })
                           }}
                           autoFocus
-                          className="flex-1 bg-transparent text-inherit resize-none focus:outline-none text-xs font-medium"
+                          placeholder="Wpisz treść..."
+                          className="flex-1 bg-transparent text-inherit resize-none focus:outline-none text-xs font-medium break-words break-all"
                         />
                         <div className="flex items-center justify-between pt-1 border-t border-white/10">
-                          {/* Color Switcher */}
+                          {/* Muted Pastel Color Switcher */}
                           <div className="flex items-center gap-1">
-                            {['yellow', 'blue', 'green', 'purple', 'rose'].map((c) => (
+                            {[
+                              { id: 'sand', bg: 'bg-[#4a4128]' },
+                              { id: 'sage', bg: 'bg-[#2d4a37]' },
+                              { id: 'rose', bg: 'bg-[#52303f]' },
+                              { id: 'lavender', bg: 'bg-[#3e3659]' },
+                              { id: 'ocean', bg: 'bg-[#293f54]' }
+                            ].map((c) => (
                               <button
-                                key={c}
+                                key={c.id}
                                 onClick={() => {
                                   const updated = doc.nodes.map((n) =>
-                                    n.id === node.id ? { ...n, data: { ...n.data, color: c } } : n
+                                    n.id === node.id ? { ...n, data: { ...n.data, color: c.id } } : n
                                   )
                                   notifyChange({ ...doc, nodes: updated })
                                 }}
-                                className={`w-3.5 h-3.5 rounded-full border border-black/30 ${
-                                  c === 'yellow' ? 'bg-yellow-400' : c === 'blue' ? 'bg-blue-400' : c === 'green' ? 'bg-green-400' : c === 'purple' ? 'bg-purple-400' : 'bg-rose-400'
-                                }`}
+                                className={`w-3.5 h-3.5 rounded-full border border-black/30 ${c.bg}`}
                               />
                             ))}
                           </div>
@@ -815,7 +907,7 @@ export const CanvasViewport: React.FC<Props> = ({
                               setEditingNodeId(null)
                               notifyChange(doc)
                             }}
-                            className="px-2.5 py-0.5 rounded bg-black/30 hover:bg-black/50 text-[10px] font-semibold"
+                            className="px-2.5 py-0.5 rounded bg-black/30 hover:bg-black/50 text-[10px] font-semibold text-inherit"
                           >
                             Zapisz
                           </button>
@@ -823,8 +915,8 @@ export const CanvasViewport: React.FC<Props> = ({
                       </div>
                     ) : (
                       <>
-                        <div className="text-xs font-medium leading-relaxed whitespace-pre-wrap">
-                          {node.data.text}
+                        <div className="text-xs font-medium leading-relaxed whitespace-pre-wrap break-words break-all" style={{ overflowWrap: 'anywhere' }}>
+                          {renderLinkedText(node.data.text)}
                         </div>
                         <div className="text-[9px] opacity-60 self-end font-mono">Sticky Note</div>
                       </>
@@ -867,7 +959,7 @@ export const CanvasViewport: React.FC<Props> = ({
                 {node.type === 'shape' && (
                   <div
                     onDoubleClick={() => setEditingNodeId(node.id)}
-                    className={`h-full w-full border-2 border-[#38bdf8]/60 bg-[#18181b]/70 flex flex-col items-center justify-center p-4 text-xs backdrop-blur-sm ${
+                    className={`h-full w-full border-2 border-[#38bdf8]/60 bg-[#18181b]/70 flex flex-col items-center justify-center p-4 text-xs backdrop-blur-sm overflow-hidden break-words ${
                       node.data.shapeType === 'ellipse' ? 'rounded-full' : 'rounded-2xl'
                     }`}
                   >
@@ -887,12 +979,12 @@ export const CanvasViewport: React.FC<Props> = ({
                           notifyChange(doc)
                         }}
                         autoFocus
-                        placeholder="Wpisz treść w kształcie..."
-                        className="w-full h-full bg-transparent text-[#f4f4f5] text-center resize-none focus:outline-none text-xs font-semibold"
+                        placeholder="Wpisz treść..."
+                        className="w-full h-full bg-transparent text-[#f4f4f5] text-center resize-none focus:outline-none text-xs font-semibold break-words break-all"
                       />
                     ) : (
-                      <span className="font-semibold text-[#f4f4f5] text-center leading-relaxed">
-                        {node.data.text || node.data.label || 'Kształt'}
+                      <span className="font-semibold text-[#f4f4f5] text-center leading-relaxed break-words break-all" style={{ overflowWrap: 'anywhere' }}>
+                        {renderLinkedText(node.data.text || node.data.label || 'Kształt')}
                       </span>
                     )}
                   </div>
@@ -903,7 +995,7 @@ export const CanvasViewport: React.FC<Props> = ({
                   <div
                     onKeyDown={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
-                    className="h-full w-full p-4 rounded-2xl bg-[#18181b] border border-[#f59e0b]/40 flex flex-col justify-between shadow-xl text-xs"
+                    className="h-full w-full p-4 rounded-2xl bg-[#18181b] border border-[#f59e0b]/40 flex flex-col justify-between shadow-xl text-xs overflow-hidden break-words"
                   >
                     <div>
                       <div className="text-[10px] text-[#f59e0b] font-bold uppercase tracking-wider mb-2 flex items-center justify-between">
@@ -960,9 +1052,10 @@ export const CanvasViewport: React.FC<Props> = ({
                       ) : (
                         <div
                           onDoubleClick={() => setEditingNodeId(node.id)}
-                          className="text-[#f4f4f5] text-xs font-semibold mb-2 leading-relaxed"
+                          className="text-[#f4f4f5] text-xs font-semibold mb-2 leading-relaxed break-words break-all"
+                          style={{ overflowWrap: 'anywhere' }}
                         >
-                          {node.data.question}
+                          {renderLinkedText(node.data.question)}
                         </div>
                       )}
                     </div>
@@ -971,7 +1064,7 @@ export const CanvasViewport: React.FC<Props> = ({
                       <div className="pt-2 border-t border-[#27272a]">
                         {node.data.is_flipped ? (
                           <div className="flex items-center justify-between">
-                            <span className="text-[#10b981] text-xs font-mono font-semibold">{node.data.answer}</span>
+                            <span className="text-[#10b981] text-xs font-mono font-semibold break-all">{node.data.answer}</span>
                             <button
                               onClick={() => {
                                 const updated = doc.nodes.map((n) =>
@@ -1002,6 +1095,24 @@ export const CanvasViewport: React.FC<Props> = ({
                       </div>
                     )}
                   </div>
+                )}
+
+                {/* Corner Resize Drag Handle (Visible when selected) */}
+                {isSelected && (
+                  <div
+                    onMouseDown={(e) => {
+                      e.stopPropagation()
+                      setResizingNodeId(node.id)
+                      setResizeStart({
+                        width: node.width,
+                        height: node.height,
+                        mouseX: e.clientX,
+                        mouseY: e.clientY
+                      })
+                    }}
+                    className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-[#38bdf8] border border-white rounded-full cursor-se-resize z-40 hover:scale-125 transition-transform shadow-md"
+                    title="Przeciągnij, aby zmienić rozmiar"
+                  />
                 )}
               </div>
             )
@@ -1044,7 +1155,7 @@ export const CanvasViewport: React.FC<Props> = ({
                 </div>
               ))}
             {doc.edges.filter((e) => e.style === 'soft_link').length === 0 && (
-              <span className="text-[10px] text-[#71717a] italic p-1">Brak bezpośrednich subtelnych linków. Użyj narzędzia [L]!</span>
+              <span className="text-[10px] text-[#71717a] italic p-1">Brak subtelnych linków. Użyj narzędzia [L] lub wpisz [nazwa] w tekście!</span>
             )}
           </div>
         )}

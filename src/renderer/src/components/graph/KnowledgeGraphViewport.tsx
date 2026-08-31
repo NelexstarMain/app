@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
 import { GraphEdgeRecord } from '../../../../shared/types/database'
-import { ZoomIn, ZoomOut, RefreshCw, Maximize2 } from 'lucide-react'
+import { ZoomIn, ZoomOut, RefreshCw, Maximize2, Link2, Check, Sparkles } from 'lucide-react'
 
 interface GraphNodeSim {
   id: string
@@ -31,11 +31,13 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [nodes, setNodes] = useState<GraphNodeSim[]>([])
   const [edges, setEdges] = useState<GraphEdgeRecord[]>([])
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const [zoom, setZoom] = useState(1.0)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [filterType, setFilterType] = useState<string | null>(null)
+  const [justLinked, setJustLinked] = useState(false)
   const animFrameRef = useRef<number | null>(null)
   const nodesRef = useRef<GraphNodeSim[]>([])
 
@@ -57,8 +59,8 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
             y: height / 2 + Math.sin(angle) * dist,
             vx: (Math.random() - 0.5) * 1.5,
             vy: (Math.random() - 0.5) * 1.5,
-            radius: n.type === 'visual_entity' ? 20 : n.type === 'canvas' ? 16 : 14,
-            color: n.type === 'visual_entity' ? '#584C6B' : n.type === 'canvas' ? '#8C6D37' : '#4A6B8A'
+            radius: n.type === 'visual_entity' ? 22 : n.type === 'canvas' ? 18 : 15,
+            color: n.type === 'visual_entity' ? '#c084fc' : n.type === 'canvas' ? '#38bdf8' : '#10b981'
           }
         })
         setNodes(simNodes)
@@ -74,29 +76,56 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
     loadGraph()
   }, [])
 
+  // Multi-Connect Selected Nodes
+  const handleConnectSelected = async () => {
+    if (selectedNodeIds.length < 2) return
+    const newEdges: GraphEdgeRecord[] = []
+
+    for (let i = 0; i < selectedNodeIds.length - 1; i++) {
+      for (let j = i + 1; j < selectedNodeIds.length; j++) {
+        const sourceNode = nodesRef.current.find((n) => n.id === selectedNodeIds[i])
+        const targetNode = nodesRef.current.find((n) => n.id === selectedNodeIds[j])
+        const edge: GraphEdgeRecord = {
+          edge_id: `edge_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          source_id: selectedNodeIds[i],
+          source_type: (sourceNode?.type as any) || 'canvas',
+          target_id: selectedNodeIds[j],
+          target_type: (targetNode?.type as any) || 'canvas',
+          relation_label: 'POWIĄZANIE',
+          origin_context: 'manual_tag',
+          origin_canvas_id: null,
+          created_at: Date.now()
+        }
+        newEdges.push(edge)
+      }
+    }
+
+    setEdges((prev) => [...prev, ...newEdges])
+    setJustLinked(true)
+    setTimeout(() => setJustLinked(false), 2000)
+  }
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    let startTime = performance.now()
-
-    const loop = (timestamp: number) => {
+    const loop = () => {
       const currentNodes = nodesRef.current
 
       // Physics forces
-      const kRep = 600
-      const kSpring = 0.004
-      const restLength = 110
+      const kRep = 700
+      const kSpring = 0.005
+      const restLength = 120
       const damping = 0.9
 
       for (let i = 0; i < currentNodes.length; i++) {
         const n1 = currentNodes[i]
         const cx = canvas.width / 2
         const cy = canvas.height / 2
-        n1.vx += (cx - n1.x) * 0.0004
-        n1.vy += (cy - n1.y) * 0.0004
+        n1.vx += (cx - n1.x) * 0.0003
+        n1.vy += (cy - n1.y) * 0.0003
 
         for (let j = i + 1; j < currentNodes.length; j++) {
           const n2 = currentNodes[j]
@@ -151,32 +180,43 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
         ctx.beginPath()
         ctx.moveTo(source.x, source.y)
         ctx.lineTo(target.x, target.y)
-        ctx.strokeStyle = '#22242b'
-        ctx.lineWidth = 1.5
+        ctx.strokeStyle = '#27272a'
+        ctx.lineWidth = 2
         ctx.stroke()
       }
 
       // Draw Nodes
       for (const n of currentNodes) {
+        const isSelected = selectedNodeIds.includes(n.id)
+
         if (filterType && n.type !== filterType) {
           ctx.globalAlpha = 0.2
         } else {
           ctx.globalAlpha = 1.0
         }
 
+        // Selection Glow Ring
+        if (isSelected) {
+          ctx.beginPath()
+          ctx.arc(n.x, n.y, n.radius + 6, 0, Math.PI * 2)
+          ctx.strokeStyle = '#38bdf8'
+          ctx.lineWidth = 3
+          ctx.stroke()
+        }
+
         ctx.beginPath()
         ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2)
         ctx.fillStyle = n.color
         ctx.fill()
-        ctx.strokeStyle = '#141519'
-        ctx.lineWidth = 2
+        ctx.strokeStyle = '#18181b'
+        ctx.lineWidth = 2.5
         ctx.stroke()
 
-        if (zoom >= 0.5) {
-          ctx.fillStyle = '#D8DAE0'
-          ctx.font = '10px sans-serif'
+        if (zoom >= 0.4) {
+          ctx.fillStyle = isSelected ? '#38bdf8' : '#f4f4f5'
+          ctx.font = 'bold 11px Inter, sans-serif'
           ctx.textAlign = 'center'
-          ctx.fillText(n.title, n.x, n.y + n.radius + 12)
+          ctx.fillText(n.title, n.x, n.y + n.radius + 14)
         }
       }
 
@@ -188,7 +228,37 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
     }
-  }, [edges, zoom, pan, filterType])
+  }, [edges, zoom, pan, filterType, selectedNodeIds])
+
+  const handleCanvasClick = (e: React.MouseEvent) => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const mouseX = (e.clientX - rect.left - pan.x) / zoom
+    const mouseY = (e.clientY - rect.top - pan.y) / zoom
+
+    // Find clicked node
+    const clickedNode = nodesRef.current.find((n) => {
+      const dx = n.x - mouseX
+      const dy = n.y - mouseY
+      return Math.sqrt(dx * dx + dy * dy) <= n.radius + 6
+    })
+
+    if (clickedNode) {
+      if (e.shiftKey) {
+        // Multi-select with Shift
+        setSelectedNodeIds((prev) =>
+          prev.includes(clickedNode.id) ? prev.filter((id) => id !== clickedNode.id) : [...prev, clickedNode.id]
+        )
+      } else {
+        setSelectedNodeIds([clickedNode.id])
+        if (onNodeClick) onNodeClick(clickedNode.id, clickedNode.type)
+      }
+    } else {
+      if (!e.shiftKey) {
+        setSelectedNodeIds([])
+      }
+    }
+  }
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true)
@@ -209,39 +279,60 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
     e.preventDefault()
     onActivity()
     const factor = e.deltaY < 0 ? 1.08 : 0.92
-    setZoom((z) => Math.max(0.2, Math.min(2.5, z * factor)))
+    setZoom((z) => Math.max(0.15, Math.min(3.0, z * factor)))
   }
 
   return (
-    <div className="h-full w-full bg-[#0B0C0E] relative overflow-hidden select-none">
-      <div className="absolute top-4 left-4 z-30 flex items-center gap-1.5 p-1 rounded-lg bg-[#141519]/90 border border-[#22242b] text-xs">
+    <div className="h-full w-full bg-[#09090b] relative overflow-hidden select-none">
+      {/* Top Left Navigation Bar */}
+      <div className="absolute top-4 left-4 z-30 flex items-center gap-1.5 p-1 rounded-xl bg-[#18181b]/90 border border-[#27272a] shadow-xl text-xs backdrop-blur-md">
         <button
           onClick={loadGraph}
-          className="p-1 rounded text-[#727683] hover:text-[#D8DAE0] hover:bg-[#1b1c22]"
-          title="Odśwież"
+          className="p-1 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]"
+          title="Odśwież graf"
         >
           <RefreshCw className="w-3.5 h-3.5" />
         </button>
-        <div className="w-px h-3 bg-[#22242b] mx-0.5" />
+        <div className="w-px h-3 bg-[#27272a] mx-0.5" />
         <button
-          onClick={() => setZoom((z) => Math.min(2.5, z + 0.15))}
-          className="p-1 rounded text-[#727683] hover:text-[#D8DAE0] hover:bg-[#1b1c22]"
+          onClick={() => setZoom((z) => Math.min(3.0, z + 0.15))}
+          className="p-1 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]"
         >
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
-        <span className="font-mono text-[11px] text-[#727683] w-9 text-center">{Math.round(zoom * 100)}%</span>
+        <span className="font-mono text-[11px] text-[#a1a1aa] w-9 text-center">{Math.round(zoom * 100)}%</span>
         <button
-          onClick={() => setZoom((z) => Math.max(0.2, z - 0.15))}
-          className="p-1 rounded text-[#727683] hover:text-[#D8DAE0] hover:bg-[#1b1c22]"
+          onClick={() => setZoom((z) => Math.max(0.15, z - 0.15))}
+          className="p-1 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]"
         >
           <ZoomOut className="w-3.5 h-3.5" />
         </button>
+      </div>
+
+      {/* Floating Multi-Select & Link Bar */}
+      {selectedNodeIds.length > 1 && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#18181b]/95 border border-[#38bdf8]/50 shadow-2xl text-xs backdrop-blur-md">
+          <span className="font-semibold text-[#f4f4f5]">Zaznaczono {selectedNodeIds.length} węzłów</span>
+          <button
+            onClick={handleConnectSelected}
+            className="px-3 py-1 rounded-lg bg-gradient-to-r from-[#38bdf8] to-[#10b981] text-black font-bold text-xs flex items-center gap-1.5 shadow-md hover:opacity-90 transition-opacity"
+          >
+            {justLinked ? <Check className="w-3.5 h-3.5" /> : <Link2 className="w-3.5 h-3.5" />}
+            <span>{justLinked ? 'Połączono!' : 'Połącz zaznaczone'}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Instruction Tip */}
+      <div className="absolute bottom-4 left-4 z-20 text-[10px] text-[#71717a] bg-[#18181b]/80 px-2 py-1 rounded-lg border border-[#27272a]">
+        Wskazówka: Przytrzymaj <kbd className="font-mono bg-[#27272a] px-1 py-0.2 rounded text-[#f4f4f5]">Shift</kbd> i klikaj kulki, aby zaznaczyć kilka i połączyć je relacją.
       </div>
 
       <canvas
         ref={canvasRef}
         width={window.innerWidth}
         height={window.innerHeight}
+        onClick={handleCanvasClick}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
