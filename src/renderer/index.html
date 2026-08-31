@@ -1,15 +1,21 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="pl" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CogniCanvas / SynapseLearn v1.3</title>
+    <title>CogniCanvas / SynapseLearn</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file: https: blob:; font-src 'self' data:; connect-src 'self' data: blob:; media-src 'self' data: file: blob:;"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: file: https: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' data: blob: https:; media-src 'self' data: file: blob:;"
     />
   </head>
-  <body class="bg-synapse-bg text-synapse-text overflow-hidden select-none font-sans antialiased">
+  <body class="bg-[#09090b] text-[#f4f4f5] overflow-hidden select-none font-sans antialiased">
     <div id="root" class="h-screen w-screen flex flex-col"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
