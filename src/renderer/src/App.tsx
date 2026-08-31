@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { IpcChannel } from '../../shared/ipc/channels'
-import { FileItem, WorkspaceStats } from '../../shared/types/workspace'
+import { FileItem } from '../../shared/types/workspace'
 import { CanvasDocument } from '../../shared/types/canvas'
 import { TaskTodoRecord } from '../../shared/types/database'
 import { SessionManager } from './state/sessionStore'
@@ -18,6 +18,7 @@ import { MarkdownEditor } from './components/editor/MarkdownEditor'
 import { CanvasViewport } from './components/canvas/CanvasViewport'
 import { KnowledgeGraphViewport } from './components/graph/KnowledgeGraphViewport'
 import { CommandPalette } from './components/terminal/CommandPalette'
+import { BottomStatusBar } from './components/terminal/BottomStatusBar'
 import { AssetDrawer } from './components/drawer/AssetDrawer'
 import { SrsReviewRunner } from './components/review/SrsReviewRunner'
 import { AnalyticsModal } from './components/analytics/AnalyticsModal'
@@ -34,17 +35,18 @@ export const App: React.FC = () => {
   const [fileTree, setFileTree] = useState<FileItem[]>([])
   const [tasks, setTasks] = useState<TaskTodoRecord[]>([])
 
-  // Activity bar active mode
+  // Activity bar mode
   const [activityMode, setActivityMode] = useState<'canvas' | 'notes' | 'graph' | 'review' | 'analytics'>('canvas')
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   // Tabs state
   const [openTabs, setOpenTabs] = useState<OpenTab[]>([
-    { id: 'tab_canvas_1', path: 'canvases/Rozbiory_Polski.canvas.json', title: 'Rozbiory Polski', type: 'canvas' }
+    { id: 'tab_canvas_1', path: 'canvases/Rozbiory_Polski.canvas.json', title: 'Rozbiory Polski', type: 'canvas' },
+    { id: 'tab_note_1', path: 'notes/Historia/Poniatowski.md', title: 'Poniatowski', type: 'note' }
   ])
   const [activeTabId, setActiveTabId] = useState<string>('tab_canvas_1')
 
-  // Document contents cache
+  // Document contents
   const [activePath, setActivePath] = useState<string | null>('canvases/Rozbiory_Polski.canvas.json')
   const [activeType, setActiveType] = useState<'note' | 'canvas' | 'graph'>('canvas')
   const [noteContent, setNoteContent] = useState<string>('')
@@ -111,7 +113,7 @@ export const App: React.FC = () => {
     }
   }, [])
 
-  // 3. Heartbeat Loop (1000ms)
+  // 3. Heartbeat Loop
   useEffect(() => {
     const interval = setInterval(() => {
       sessionManagerRef.current.onHeartbeatTick()
@@ -125,7 +127,7 @@ export const App: React.FC = () => {
     await refreshFiles()
     await loadTasks()
 
-    // Open sample canvas
+    // Default open canvas
     const sampleCanvasPath = 'canvases/Rozbiory_Polski.canvas.json'
     try {
       const res = await window.electronAPI.invoke(IpcChannel.FILE_READ, { relativePath: sampleCanvasPath })
@@ -163,7 +165,6 @@ export const App: React.FC = () => {
     const fileType = isCanvas ? 'canvas' : 'note'
     const tabId = `tab_${file.relativePath.replace(/[^a-zA-Z0-9]/g, '_')}`
 
-    // Check if tab already open
     const existing = openTabs.find((t) => t.path === file.relativePath)
     if (!existing) {
       const newTab: OpenTab = {
@@ -178,6 +179,7 @@ export const App: React.FC = () => {
     setActiveTabId(existing ? existing.id : tabId)
     setActivePath(file.relativePath)
     setActiveType(fileType)
+    setActivityMode(fileType === 'canvas' ? 'canvas' : 'notes')
 
     try {
       const res = await window.electronAPI.invoke(IpcChannel.FILE_READ, { relativePath: file.relativePath })
@@ -200,6 +202,107 @@ export const App: React.FC = () => {
       setActiveTabId(next.id)
       setActivePath(next.path)
       setActiveType(next.type)
+      setActivityMode(next.type === 'canvas' ? 'canvas' : 'notes')
+    }
+  }
+
+  // Top 3 Activity Bar Handlers
+  const handleSelectCanvasMode = () => {
+    setActivityMode('canvas')
+    const canvasTab = openTabs.find((t) => t.type === 'canvas')
+    if (canvasTab) {
+      setActiveTabId(canvasTab.id)
+      setActivePath(canvasTab.path)
+      setActiveType('canvas')
+    } else {
+      // Find first canvas in file tree
+      const firstCanvas = findFirstFileByType(fileTree, '.canvas.json')
+      if (firstCanvas) handleOpenFile(firstCanvas)
+      else setActiveType('canvas')
+    }
+  }
+
+  const handleSelectNotesMode = () => {
+    setActivityMode('notes')
+    const noteTab = openTabs.find((t) => t.type === 'note')
+    if (noteTab) {
+      setActiveTabId(noteTab.id)
+      setActivePath(noteTab.path)
+      setActiveType('note')
+    } else {
+      const firstNote = findFirstFileByType(fileTree, '.md')
+      if (firstNote) handleOpenFile(firstNote)
+      else setActiveType('note')
+    }
+  }
+
+  const handleSelectGraphMode = () => {
+    setActivityMode('graph')
+    setActiveType('graph')
+  }
+
+  const findFirstFileByType = (items: FileItem[], extMatch: string): FileItem | null => {
+    for (const it of items) {
+      if (it.type === 'file' && it.name.includes(extMatch)) return it
+      if (it.children) {
+        const found = findFirstFileByType(it.children, extMatch)
+        if (found) return found
+      }
+    }
+    return null
+  }
+
+  // File CRUD operations
+  const handleNewNote = async (folderPath = 'notes') => {
+    const title = prompt('Podaj tytuł nowej notatki:', 'Nowa Notatka')
+    if (!title) return
+    const filename = `${title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_')}.md`
+    const relativePath = `${folderPath}/${filename}`
+
+    await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
+      relativePath,
+      content: `# ${title}\n\nZacznij pisać tutaj...`,
+      createBackup: true
+    })
+    await refreshFiles()
+    handleOpenFile({ name: filename, relativePath, type: 'file', updatedAt: Date.now() })
+  }
+
+  const handleNewCanvas = async (folderPath = 'canvases') => {
+    const title = prompt('Podaj nazwę nowej tablicy:', 'Nowa Tablica')
+    if (!title) return
+    const filename = `${title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_')}.canvas.json`
+    const relativePath = `${folderPath}/${filename}`
+
+    const newCanvas: CanvasDocument = {
+      version: '1.4',
+      canvas_id: relativePath,
+      title,
+      viewport: { x: 0, y: 0, zoom: 1.0 },
+      nodes: [],
+      edges: []
+    }
+
+    await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
+      relativePath,
+      content: JSON.stringify(newCanvas, null, 2),
+      createBackup: true
+    })
+    await refreshFiles()
+    handleOpenFile({ name: filename, relativePath, type: 'file', updatedAt: Date.now() })
+  }
+
+  const handleDeleteFile = async (relativePath: string) => {
+    try {
+      await window.electronAPI.invoke(IpcChannel.FILE_DELETE, { relativePath })
+      // Remove from tabs if open
+      setOpenTabs((prev) => prev.filter((t) => t.path !== relativePath))
+      if (activePath === relativePath) {
+        setActivePath(null)
+      }
+      await refreshFiles()
+    } catch (err) {
+      console.error('Delete file failed:', err)
     }
   }
 
@@ -232,7 +335,7 @@ export const App: React.FC = () => {
           streak_day_count: 1
         },
         topicFeedback: {
-          topicId: 'Historia Polski',
+          topicId: 'Baza Wiedzy',
           score: evalScore,
           lapses: 0
         }
@@ -259,7 +362,7 @@ export const App: React.FC = () => {
     }
   }
 
-  // Command Execution
+  // CLI Command Execution
   const handleExecuteCommand = async (cmd: ParsedCommand) => {
     const commandName = cmd.command.toLowerCase()
     if (commandName === 'links' || commandName === 'asset') {
@@ -270,7 +373,7 @@ export const App: React.FC = () => {
     } else if (commandName === 'stats') {
       setStatsHudOpen((p) => !p)
     } else if (commandName === 'graph') {
-      setActiveType('graph')
+      handleSelectGraphMode()
     } else if (commandName === 'session') {
       const sub = cmd.primaryArgument?.toLowerCase()
       if (sub === 'pause') sessionManagerRef.current.pauseManual()
@@ -294,7 +397,7 @@ export const App: React.FC = () => {
       const title = cmd.primaryArgument || 'Nowa Tablica'
       const rel = `canvases/${title.replace(/\s+/g, '_')}.canvas.json`
       const newCanvas: CanvasDocument = {
-        version: '1.3',
+        version: '1.4',
         canvas_id: rel,
         title,
         viewport: { x: 0, y: 0, zoom: 1.0 },
@@ -308,6 +411,16 @@ export const App: React.FC = () => {
       })
       await refreshFiles()
       handleOpenFile({ name: `${title}.canvas.json`, relativePath: rel, type: 'file', updatedAt: Date.now() })
+    } else if (commandName === 'todo') {
+      const title = cmd.primaryArgument || 'Nowe zadanie'
+      const prio = (cmd.flags.priority?.toUpperCase() as 'P1' | 'P2' | 'P3') || 'P2'
+      await window.electronAPI.invoke(IpcChannel.DB_CREATE_TASK, {
+        title,
+        priority: prio === 'P1' || prio === 'P2' || prio === 'P3' ? prio : 'P2',
+        timeEstimateMin: cmd.flags.timeEstimateMin || 25,
+        topicId: cmd.flags.targetCanvas
+      })
+      await loadTasks()
     }
   }
 
@@ -316,8 +429,8 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#0B0C0E] text-[#D8DAE0] overflow-hidden select-none">
-      {/* Top Bar */}
+    <div className="h-full w-full flex flex-col bg-[#09090b] text-[#f4f4f5] overflow-hidden select-none font-sans">
+      {/* Top Header */}
       <SessionHeader
         sessionContext={sessionCtx}
         tasks={tasks}
@@ -341,52 +454,60 @@ export const App: React.FC = () => {
         onToggleTaskComplete={handleToggleTaskComplete}
       />
 
-      {/* Main Container */}
+      {/* Main Work Container */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Far Left Activity Bar (thin column of tool icons) */}
-        <aside className="w-10 h-full bg-[#101114] border-r border-[#22242b] flex flex-col items-center py-2 gap-1 z-20">
+        {/* Far Left Activity Bar */}
+        <aside className="w-12 h-full bg-[#09090b] border-r border-[#27272a] flex flex-col items-center py-3 gap-2 z-20">
           <button
-            onClick={() => {
-              setActivityMode('canvas')
-              setSidebarOpen(true)
-            }}
+            onClick={handleSelectCanvasMode}
             title="Tablice Whiteboard"
-            className={`p-2 rounded-lg text-[#727683] transition-colors ${activityMode === 'canvas' ? 'bg-[#1b1c22] text-[#D8DAE0]' : 'hover:text-[#D8DAE0] hover:bg-[#15161a]'}`}
+            className={`p-2.5 rounded-xl transition-all ${
+              activityMode === 'canvas' && activeType === 'canvas'
+                ? 'bg-[#27272a] text-[#38bdf8] shadow-md'
+                : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+            }`}
           >
             <LayoutGrid className="w-4 h-4" />
           </button>
 
           <button
-            onClick={() => {
-              setActivityMode('notes')
-              setSidebarOpen(true)
-            }}
+            onClick={handleSelectNotesMode}
             title="Notatki Markdown"
-            className={`p-2 rounded-lg text-[#727683] transition-colors ${activityMode === 'notes' ? 'bg-[#1b1c22] text-[#D8DAE0]' : 'hover:text-[#D8DAE0] hover:bg-[#15161a]'}`}
+            className={`p-2.5 rounded-xl transition-all ${
+              activityMode === 'notes' && activeType === 'note'
+                ? 'bg-[#27272a] text-[#38bdf8] shadow-md'
+                : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+            }`}
           >
             <FileText className="w-4 h-4" />
           </button>
 
           <button
-            onClick={() => setActiveType('graph')}
+            onClick={handleSelectGraphMode}
             title="Graf Wiedzy"
-            className={`p-2 rounded-lg text-[#727683] transition-colors ${activeType === 'graph' ? 'bg-[#1b1c22] text-[#D8DAE0]' : 'hover:text-[#D8DAE0] hover:bg-[#15161a]'}`}
+            className={`p-2.5 rounded-xl transition-all ${
+              activeType === 'graph'
+                ? 'bg-[#27272a] text-[#38bdf8] shadow-md'
+                : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+            }`}
           >
             <Share2 className="w-4 h-4" />
           </button>
 
+          <div className="w-6 h-px bg-[#27272a] my-1" />
+
           <button
             onClick={() => setReviewRunnerOpen(true)}
-            title="Powtórki SRS"
-            className="p-2 rounded-lg text-[#727683] hover:text-[#D8DAE0] hover:bg-[#15161a] transition-colors"
+            title="Powtórki SRS (#review)"
+            className="p-2.5 rounded-xl text-[#71717a] hover:text-[#f59e0b] hover:bg-[#18181b] transition-all"
           >
             <BookOpen className="w-4 h-4" />
           </button>
 
           <button
             onClick={() => setAnalyticsModalOpen(true)}
-            title="Analityka"
-            className="p-2 rounded-lg text-[#727683] hover:text-[#D8DAE0] hover:bg-[#15161a] transition-colors"
+            title="Analityka Skupienia (#stats)"
+            className="p-2.5 rounded-xl text-[#71717a] hover:text-[#10b981] hover:bg-[#18181b] transition-all"
           >
             <BarChart2 className="w-4 h-4" />
           </button>
@@ -399,19 +520,20 @@ export const App: React.FC = () => {
             fileTree={fileTree}
             activePath={activePath}
             onOpenFile={handleOpenFile}
-            onOpenGraph={() => setActiveType('graph')}
+            onOpenGraph={handleSelectGraphMode}
             onOpenReview={() => setReviewRunnerOpen(true)}
             onOpenAnalytics={() => setAnalyticsModalOpen(true)}
             onRefreshFiles={refreshFiles}
-            onNewNote={() => handleExecuteCommand({ rawInput: '#note', prefix: '#', command: 'note', primaryArgument: 'Nowa Notatka', secondaryArgument: null, flags: {} })}
-            onNewCanvas={() => handleExecuteCommand({ rawInput: '#canvas', prefix: '#', command: 'canvas', primaryArgument: 'Nowa Tablica', secondaryArgument: null, flags: {} })}
+            onNewNote={(folder) => handleNewNote(folder)}
+            onNewCanvas={(folder) => handleNewCanvas(folder)}
+            onDeleteFile={handleDeleteFile}
           />
         )}
 
         {/* Center Main Work Area */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0B0C0E] relative">
-          {/* Document Tabs Bar */}
-          <div className="h-8 bg-[#101114] border-b border-[#22242b] flex items-center px-1 overflow-x-auto no-scrollbar gap-1 text-xs">
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0c0c0e] relative">
+          {/* Tabs Bar */}
+          <div className="h-9 bg-[#111114] border-b border-[#27272a] flex items-center px-1.5 overflow-x-auto no-scrollbar gap-1 text-xs">
             {openTabs.map((tab) => {
               const isActive = activePath === tab.path
               return (
@@ -421,22 +543,23 @@ export const App: React.FC = () => {
                     setActivePath(tab.path)
                     setActiveType(tab.type)
                     setActiveTabId(tab.id)
+                    setActivityMode(tab.type === 'canvas' ? 'canvas' : 'notes')
                   }}
-                  className={`h-7 px-2.5 rounded flex items-center gap-1.5 cursor-pointer text-[11px] transition-colors ${
+                  className={`h-7 px-3 rounded-lg flex items-center gap-2 cursor-pointer text-[11px] transition-all ${
                     isActive
-                      ? 'bg-[#1b1c22] text-[#D8DAE0] border border-[#282932]'
-                      : 'text-[#727683] hover:text-[#D8DAE0] hover:bg-[#15161a]'
+                      ? 'bg-[#18181b] text-[#f4f4f5] font-semibold border border-[#3f3f46] shadow-sm'
+                      : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
                   }`}
                 >
                   {tab.type === 'canvas' ? (
-                    <LayoutGrid className="w-3 h-3 text-[#584C6B]" />
+                    <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7]" />
                   ) : (
-                    <FileText className="w-3 h-3 text-[#4A6B8A]" />
+                    <FileText className="w-3.5 h-3.5 text-[#38bdf8]" />
                   )}
-                  <span className="truncate max-w-[120px]">{tab.title}</span>
+                  <span className="truncate max-w-[130px]">{tab.title}</span>
                   <button
                     onClick={(e) => handleCloseTab(e, tab.id)}
-                    className="p-0.5 rounded hover:bg-[#22242b] text-[#727683] hover:text-[#D8DAE0]"
+                    className="p-0.5 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#f4f4f5]"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -445,7 +568,7 @@ export const App: React.FC = () => {
             })}
           </div>
 
-          {/* Viewport Render Area */}
+          {/* Viewport Content */}
           <main className="flex-1 h-full overflow-hidden relative">
             {activeType === 'graph' ? (
               <KnowledgeGraphViewport
@@ -484,8 +607,8 @@ export const App: React.FC = () => {
                 onActivity={() => sessionManagerRef.current.registerActivity()}
               />
             ) : (
-              <div className="h-full flex items-center justify-center text-[#727683] text-xs">
-                Wybierz tablicę lub notatkę z paska bocznego.
+              <div className="h-full flex items-center justify-center text-[#71717a] text-xs">
+                Wybierz tablicę lub notatkę z eksploratora plików.
               </div>
             )}
           </main>
@@ -501,6 +624,13 @@ export const App: React.FC = () => {
           }}
         />
       </div>
+
+      {/* Bottom Status & Mini CLI Terminal Bar */}
+      <BottomStatusBar
+        activePath={activePath}
+        activeType={activeType}
+        onExecuteCommand={handleExecuteCommand}
+      />
 
       {/* Floating HUD Widget */}
       {statsHudOpen && (

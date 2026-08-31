@@ -1,30 +1,47 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #09090b;
+    color: #f4f4f5;
+    overflow: hidden;
+  }
+
+  code, pre, kbd {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
   ::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+    width: 5px;
+    height: 5px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #22242b;
-    border-radius: 2px;
+    background: #27272a;
+    border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #333640;
+    background: #3f3f46;
   }
 }
 
-.frosted-panel {
-  background: #141519;
-  border: 1px solid #22242b;
+.glass-toolbar {
+  background: rgba(24, 24, 27, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
 }
 
 .canvas-grid {
-  background-color: #0b0c0e;
-  background-image: radial-gradient(#22242b 1px, transparent 1px);
+  background-color: #0c0c0e;
+  background-image: radial-gradient(#27272a 1.2px, transparent 1.2px);
+  background-size: 24px 24px;
 }

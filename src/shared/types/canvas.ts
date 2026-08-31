@@ -10,18 +10,21 @@ export type CanvasNodeType =
 export interface TextCardData {
   title?: string
   markdown: string
+  relatedNotes?: string[]
 }
 
 export interface StickyNoteData {
   text: string
-  color: 'yellow' | 'blue' | 'green' | 'purple' | 'gray'
+  color: 'yellow' | 'blue' | 'green' | 'purple' | 'gray' | 'rose'
 }
 
 export interface ShapeData {
   shapeType: 'rectangle' | 'ellipse' | 'frame'
   label?: string
+  text?: string
   fillColor?: string
   borderColor?: string
+  textColor?: string
 }
 
 export interface ImageNodeData {
@@ -71,7 +74,7 @@ export interface CanvasNode<T = any> {
 }
 
 export type EdgeSide = 'top' | 'right' | 'bottom' | 'left'
-export type EdgeStyle = 'solid' | 'dashed' | 'dotted'
+export type EdgeStyle = 'solid' | 'dashed' | 'dotted' | 'soft_link'
 
 export interface CanvasEdge {
   id: string

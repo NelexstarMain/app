@@ -7,10 +7,13 @@ import {
   BarChart2,
   RefreshCw,
   Folder,
+  FolderPlus,
   ChevronRight,
   ChevronDown,
   Plus,
-  Compass
+  Trash2,
+  Edit3,
+  MoreVertical
 } from 'lucide-react'
 import { FileItem } from '../../../../shared/types/workspace'
 import { IpcChannel } from '../../../../shared/ipc/channels'
@@ -24,8 +27,10 @@ interface Props {
   onOpenReview: () => void
   onOpenAnalytics: () => void
   onRefreshFiles: () => void
-  onNewNote: () => void
-  onNewCanvas: () => void
+  onNewNote: (folderPath?: string) => void
+  onNewCanvas: (folderPath?: string) => void
+  onDeleteFile?: (relativePath: string) => void
+  onRenameFile?: (oldPath: string, newName: string) => void
 }
 
 export const FileSidebar: React.FC<Props> = ({
@@ -38,7 +43,9 @@ export const FileSidebar: React.FC<Props> = ({
   onOpenAnalytics,
   onRefreshFiles,
   onNewNote,
-  onNewCanvas
+  onNewCanvas,
+  onDeleteFile,
+  onRenameFile
 }) => {
   const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({
     notes: true,
@@ -46,6 +53,7 @@ export const FileSidebar: React.FC<Props> = ({
     'notes/Historia': true
   })
   const [isReindexing, setIsReindexing] = useState(false)
+  const [hoveredItem, setHoveredItem] = useState<string | null>(null)
 
   const toggleDir = (dirPath: string) => {
     setExpandedDirs((prev) => ({ ...prev, [dirPath]: !prev[dirPath] }))
@@ -55,15 +63,19 @@ export const FileSidebar: React.FC<Props> = ({
     setIsReindexing(true)
     try {
       const res = await window.electronAPI.invoke(IpcChannel.DB_REINDEX_ALL, undefined)
-      if (res.success) {
-        alert(`Cold Reindex ukończony! Zindeksowano ${res.count} dokumentów w ${res.durationMs}ms.`)
-      }
+      await onRefreshFiles()
+      alert(`Cold Reindex ukończony! Zindeksowano ${res.count || 0} dokumentów.`)
     } catch (err) {
       console.error('Reindex failed:', err)
     } finally {
       setIsReindexing(false)
-      onRefreshFiles()
     }
+  }
+
+  const cleanWorkspaceName = (p: string) => {
+    const raw = p.split(/[\\/]/).pop() || 'Workspace'
+    if (raw === 'hgf' || raw === 'App' || raw === 'app') return 'Baza Wiedzy'
+    return raw
   }
 
   const renderItem = (item: FileItem, depth = 0) => {
@@ -74,18 +86,43 @@ export const FileSidebar: React.FC<Props> = ({
     if (isDir) {
       return (
         <div key={item.relativePath}>
-          <button
-            onClick={() => toggleDir(item.relativePath)}
-            className="w-full flex items-center gap-1.5 py-1 px-2 rounded-md text-[11px] text-[#727683] hover:text-[#D8DAE0] hover:bg-[#1b1c22] transition-colors text-left"
-            style={{ paddingLeft: `${depth * 10 + 6}px` }}
+          <div
+            onMouseEnter={() => setHoveredItem(item.relativePath)}
+            onMouseLeave={() => setHoveredItem(null)}
+            className="group flex items-center justify-between py-1.5 px-2 rounded-lg text-xs text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors cursor-pointer"
+            style={{ paddingLeft: `${depth * 12 + 6}px` }}
           >
-            {isExpanded ? <ChevronDown className="w-3 h-3 text-[#4B4E58]" /> : <ChevronRight className="w-3 h-3 text-[#4B4E58]" />}
-            <Folder className="w-3.5 h-3.5 text-[#727683]" />
-            <span className="truncate">{item.name}</span>
-          </button>
+            <button
+              onClick={() => toggleDir(item.relativePath)}
+              className="flex items-center gap-2 flex-1 text-left truncate"
+            >
+              {isExpanded ? (
+                <ChevronDown className="w-3.5 h-3.5 text-[#71717a] shrink-0" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-[#71717a] shrink-0" />
+              )}
+              <Folder className="w-4 h-4 text-[#f59e0b] shrink-0" />
+              <span className="truncate font-medium text-[11px]">{item.name}</span>
+            </button>
+
+            {hoveredItem === item.relativePath && (
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onNewNote(item.relativePath)
+                  }}
+                  title="Nowa notatka w tym folderze"
+                  className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#f4f4f5]"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+          </div>
 
           {isExpanded && item.children && (
-            <div>{item.children.map((child) => renderItem(child, depth + 1))}</div>
+            <div className="space-y-0.5">{item.children.map((child) => renderItem(child, depth + 1))}</div>
           )}
         </div>
       )
@@ -94,95 +131,138 @@ export const FileSidebar: React.FC<Props> = ({
     const isCanvas = item.name.includes('.canvas.')
 
     return (
-      <button
+      <div
         key={item.relativePath}
-        onClick={() => onOpenFile(item)}
-        className={`w-full flex items-center gap-2 py-1 px-2 rounded-md text-[11px] transition-colors text-left ${
+        onMouseEnter={() => setHoveredItem(item.relativePath)}
+        onMouseLeave={() => setHoveredItem(null)}
+        className={`group flex items-center justify-between py-1.5 px-2 rounded-lg text-xs transition-colors cursor-pointer ${
           isActive
-            ? 'bg-[#1b1c22] text-[#D8DAE0] font-medium border-l-2 border-[#4A6B8A]'
-            : 'text-[#727683] hover:text-[#D8DAE0] hover:bg-[#15161a]'
+            ? 'bg-[#18181b] text-[#f4f4f5] font-semibold border-l-2 border-[#38bdf8]'
+            : 'text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#111114]'
         }`}
-        style={{ paddingLeft: `${depth * 10 + 14}px` }}
+        style={{ paddingLeft: `${depth * 12 + 18}px` }}
       >
-        {isCanvas ? (
-          <LayoutGrid className="w-3.5 h-3.5 text-[#584C6B] shrink-0" />
-        ) : (
-          <FileText className="w-3.5 h-3.5 text-[#4A6B8A] shrink-0" />
+        <button
+          onClick={() => onOpenFile(item)}
+          className="flex items-center gap-2 flex-1 text-left truncate"
+        >
+          {isCanvas ? (
+            <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7] shrink-0" />
+          ) : (
+            <FileText className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+          )}
+          <span className="truncate text-[11px]">{item.name.replace(/\.(md|canvas\.json|json)$/, '')}</span>
+        </button>
+
+        {hoveredItem === item.relativePath && onDeleteFile && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              if (confirm(`Czy na pewno usunąć plik ${item.name}?`)) {
+                onDeleteFile(item.relativePath)
+              }
+            }}
+            title="Usuń plik"
+            className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#fb7185] opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
         )}
-        <span className="truncate">{item.name.replace(/\.(md|canvas\.json|json)$/, '')}</span>
-      </button>
+      </div>
     )
   }
 
   return (
-    <div className="w-56 h-full bg-[#101114] border-r border-[#22242b] flex flex-col select-none text-xs">
-      {/* Workspace Title Header */}
-      <div className="h-10 px-3 border-b border-[#22242b] flex items-center justify-between text-[#D8DAE0]">
-        <span className="font-semibold text-xs truncate" title={workspacePath}>
-          {workspacePath.split(/[\\/]/).pop() || 'Workspace'}
-        </span>
-        <div className="flex items-center gap-1">
+    <div className="w-60 h-full bg-[#09090b] border-r border-[#27272a] flex flex-col select-none text-xs">
+      {/* Workspace Header */}
+      <div className="h-10 px-3.5 border-b border-[#27272a] flex items-center justify-between text-[#f4f4f5]">
+        <div className="flex items-center gap-2 truncate">
+          <div className="w-5 h-5 rounded-md bg-[#18181b] border border-[#27272a] flex items-center justify-center text-[10px] font-bold text-[#38bdf8]">
+            K
+          </div>
+          <span className="font-semibold text-xs truncate" title={workspacePath}>
+            {cleanWorkspaceName(workspacePath)}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-0.5">
           <button
-            onClick={onNewNote}
-            title="Nowa notatka (#note)"
-            className="p-1 rounded text-[#727683] hover:text-[#D8DAE0] hover:bg-[#1b1c22]"
+            onClick={() => onNewNote()}
+            title="Nowa notatka (.md)"
+            className="p-1 rounded-md text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <FileText className="w-3.5 h-3.5 text-[#38bdf8]" />
           </button>
           <button
-            onClick={onRefreshFiles}
-            title="Odśwież"
-            className="p-1 rounded text-[#727683] hover:text-[#D8DAE0] hover:bg-[#1b1c22]"
+            onClick={() => onNewCanvas()}
+            title="Nowa tablica (.canvas.json)"
+            className="p-1 rounded-md text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7]" />
+          </button>
+          <button
+            onClick={handleColdReindex}
+            title="Odśwież i reindeksuj (Cold Reindex)"
+            className="p-1 rounded-md text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isReindexing ? 'animate-spin text-[#10b981]' : ''}`} />
           </button>
         </div>
       </div>
 
       {/* Quick Navigation Modes */}
-      <div className="p-2 space-y-0.5 border-b border-[#22242b]">
+      <div className="p-2 space-y-1 border-b border-[#27272a]">
         <button
           onClick={onOpenGraph}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[#727683] hover:text-[#D8DAE0] hover:bg-[#1b1c22] transition-colors text-left"
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
         >
-          <Share2 className="w-3.5 h-3.5 text-[#4A6B8A]" />
+          <Share2 className="w-4 h-4 text-[#38bdf8]" />
           <span>Graf Wiedzy</span>
         </button>
         <button
           onClick={onOpenReview}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[#727683] hover:text-[#D8DAE0] hover:bg-[#1b1c22] transition-colors text-left"
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
         >
-          <BookOpen className="w-3.5 h-3.5 text-[#8C6D37]" />
+          <BookOpen className="w-4 h-4 text-[#f59e0b]" />
           <span>Fiszki SRS (#review)</span>
         </button>
         <button
           onClick={onOpenAnalytics}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[#727683] hover:text-[#D8DAE0] hover:bg-[#1b1c22] transition-colors text-left"
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
         >
-          <BarChart2 className="w-3.5 h-3.5 text-[#38664B]" />
+          <BarChart2 className="w-4 h-4 text-[#10b981]" />
           <span>Analityka Skupienia</span>
         </button>
       </div>
 
-      {/* File Tree */}
+      {/* File Tree Section */}
       <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-[#4B4E58] px-2 py-1">
-          Eksplorator
+        <div className="flex items-center justify-between px-2 py-1 mb-1">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-[#52525b]">
+            Eksplorator Plików
+          </span>
+          <button
+            onClick={() => onNewNote()}
+            className="text-[10px] text-[#38bdf8] hover:underline flex items-center gap-0.5"
+          >
+            <Plus className="w-3 h-3" />
+            <span>Dodaj</span>
+          </button>
         </div>
         {fileTree.map((item) => renderItem(item))}
       </div>
 
-      {/* Footer Reindex */}
-      <div className="h-8 px-3 border-t border-[#22242b] flex items-center justify-between text-[10px] text-[#727683] bg-[#0b0c0e]">
+      {/* Footer Info */}
+      <div className="h-8 px-3 border-t border-[#27272a] flex items-center justify-between text-[10px] text-[#71717a] bg-[#09090b]">
         <button
           onClick={handleColdReindex}
           disabled={isReindexing}
-          className="flex items-center gap-1 hover:text-[#D8DAE0]"
+          className="flex items-center gap-1.5 hover:text-[#f4f4f5]"
         >
-          <RefreshCw className={`w-3 h-3 ${isReindexing ? 'animate-spin text-[#38664B]' : ''}`} />
-          <span>Cold Reindex</span>
+          <RefreshCw className={`w-3 h-3 ${isReindexing ? 'animate-spin text-[#10b981]' : ''}`} />
+          <span>{isReindexing ? 'Indeksowanie...' : 'Cold Reindex'}</span>
         </button>
-        <span className="opacity-50">FTS5</span>
+        <span className="font-mono text-[#52525b]">SQLite FTS5</span>
       </div>
     </div>
   )
