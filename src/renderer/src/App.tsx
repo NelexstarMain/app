@@ -5,11 +5,12 @@ import { CanvasDocument } from '../../shared/types/canvas'
 import { TaskTodoRecord } from '../../shared/types/database'
 import { SessionManager } from './state/sessionStore'
 import { parseCliCommand, ParsedCommand } from '../../shared/types/commands'
-import { LayoutGrid, Share2, CheckSquare, BookOpen, BarChart2, X, Plus, FileText, AlignLeft, Terminal, CornerDownLeft } from 'lucide-react'
+import { LayoutGrid, Share2, CheckSquare, BookOpen, BarChart2, X, Plus, FileText, AlignLeft } from 'lucide-react'
 
 // Components
 import { WorkspaceSelector } from './components/workspace/WorkspaceSelector'
 import { FileSidebar } from './components/workspace/FileSidebar'
+import { CreateFileDialog, FileCreationType } from './components/workspace/CreateFileDialog'
 import { SessionHeader } from './components/session/SessionHeader'
 import { SessionKickoffModal } from './components/session/SessionKickoffModal'
 import { SessionEvaluationModal } from './components/session/SessionEvaluationModal'
@@ -53,8 +54,10 @@ export const App: React.FC = () => {
   const [canvasDoc, setCanvasDoc] = useState<CanvasDocument | null>(null)
   const [textContent, setTextContent] = useState<string>('')
 
-  // Clean Bottom CLI Input
-  const [cliInput, setCliInput] = useState('')
+  // Create Item In-App Modal Dialog
+  const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [createModalDefaultType, setCreateModalDefaultType] = useState<FileCreationType>('canvas')
+  const [createModalDefaultFolder, setCreateModalDefaultFolder] = useState('canvases')
 
   // Modals & Drawers
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -263,69 +266,55 @@ export const App: React.FC = () => {
     window.addEventListener('mouseup', onMouseUp)
   }
 
-  // File Creation Handlers for the 3 Formats
-  const handleNewCanvas = async (folderPath = 'canvases') => {
-    const title = prompt('Podaj nazwę nowej tablicy:', 'Nowa Tablica')
-    if (!title) return
-    const filename = `${title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_')}.canvas.json`
-    const relativePath = `${folderPath}/${filename}`
+  // Reliable In-App File & Folder Creation
+  const handleRequestCreate = (defaultType: FileCreationType = 'canvas', folder?: string) => {
+    const targetFolder = folder || (defaultType === 'canvas' ? 'canvases' : 'notes')
+    setCreateModalDefaultType(defaultType)
+    setCreateModalDefaultFolder(targetFolder)
+    setCreateModalOpen(true)
+  }
 
-    const newCanvas: CanvasDocument = {
-      version: '1.4',
-      canvas_id: relativePath,
-      title,
-      viewport: { x: 0, y: 0, zoom: 1.0 },
-      nodes: [],
-      edges: []
+  const handleCreateFileOrFolder = async (name: string, type: FileCreationType, folder: string) => {
+    // Keep Polish diacritics and all valid Unicode filename characters, strip only OS-forbidden characters
+    const cleanName = name.trim().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_') || `Nowy_${Date.now()}`
+    const targetFolder = folder?.trim() || (type === 'canvas' ? 'canvases' : 'notes')
+
+    if (type === 'folder') {
+      const relativePath = `${targetFolder}/${cleanName}`
+      await window.electronAPI.invoke(IpcChannel.FILE_CREATE_FOLDER, { relativePath })
+      await refreshFiles()
+      return
     }
 
+    let filename = cleanName
+    let initialContent = ''
+    if (type === 'canvas') {
+      filename = cleanName.endsWith('.canvas.json') ? cleanName : `${cleanName}.canvas.json`
+      const newCanvas: CanvasDocument = {
+        version: '1.4',
+        canvas_id: `${targetFolder}/${filename}`,
+        title: name.trim(),
+        viewport: { x: 0, y: 0, zoom: 1.0 },
+        nodes: [],
+        edges: []
+      }
+      initialContent = JSON.stringify(newCanvas, null, 2)
+    } else if (type === 'md') {
+      filename = cleanName.endsWith('.md') ? cleanName : `${cleanName}.md`
+      initialContent = `# ${name.trim()}\n\nZacznij pisać treść notatki...`
+    } else {
+      filename = cleanName.endsWith('.txt') ? cleanName : `${cleanName}.txt`
+      initialContent = `${name.trim()}\n\nWpisz treść...`
+    }
+
+    const relativePath = `${targetFolder}/${filename}`
     await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
       relativePath,
-      content: JSON.stringify(newCanvas, null, 2),
+      content: initialContent,
       createBackup: true
     })
     await refreshFiles()
-    handleOpenFile({ name: filename, relativePath, type: 'file', updatedAt: Date.now() })
-  }
-
-  const handleNewMarkdown = async (folderPath = 'notes') => {
-    const title = prompt('Podaj tytuł nowej notatki Markdown:', 'Notatka')
-    if (!title) return
-    const filename = `${title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_')}.md`
-    const relativePath = `${folderPath}/${filename}`
-
-    await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
-      relativePath,
-      content: `# ${title}\n\nZacznij pisać treść notatki...`,
-      createBackup: true
-    })
-    await refreshFiles()
-    handleOpenFile({ name: filename, relativePath, type: 'file', updatedAt: Date.now() })
-  }
-
-  const handleNewPlainText = async (folderPath = 'notes') => {
-    const title = prompt('Podaj nazwę pliku tekstowego:', 'Tekst')
-    if (!title) return
-    const filename = `${title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_')}.txt`
-    const relativePath = `${folderPath}/${filename}`
-
-    await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
-      relativePath,
-      content: `${title}\n\nWpisz treść...`,
-      createBackup: true
-    })
-    await refreshFiles()
-    handleOpenFile({ name: filename, relativePath, type: 'file', updatedAt: Date.now() })
-  }
-
-  const handleCreateFolder = async (parentPath = 'notes') => {
-    const folderName = prompt('Podaj nazwę nowego folderu:', 'Nowy Folder')
-    if (!folderName) return
-    const cleanName = folderName.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_')
-    const relativePath = `${parentPath}/${cleanName}`
-
-    await window.electronAPI.invoke(IpcChannel.FILE_CREATE_FOLDER, { relativePath })
-    await refreshFiles()
+    await handleOpenFile({ name: filename, relativePath, type: 'file', updatedAt: Date.now() })
   }
 
   const handleRenamePath = async (oldPath: string, newName: string) => {
@@ -410,7 +399,7 @@ export const App: React.FC = () => {
     }
   }
 
-  // CLI Command Execution (Clean, no spam)
+  // CLI Command Palette Execution
   const handleExecuteCommand = async (cmd: ParsedCommand) => {
     const commandName = cmd.command.toLowerCase()
 
@@ -435,23 +424,7 @@ export const App: React.FC = () => {
       }
       syncSessionState()
     } else if (commandName === 'canvas') {
-      const title = cmd.primaryArgument || 'Nowa Tablica'
-      const rel = `canvases/${title.replace(/\s+/g, '_')}.canvas.json`
-      const newCanvas: CanvasDocument = {
-        version: '1.4',
-        canvas_id: rel,
-        title,
-        viewport: { x: 0, y: 0, zoom: 1.0 },
-        nodes: [],
-        edges: []
-      }
-      await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
-        relativePath: rel,
-        content: JSON.stringify(newCanvas, null, 2),
-        createBackup: true
-      })
-      await refreshFiles()
-      handleOpenFile({ name: `${title}.canvas.json`, relativePath: rel, type: 'file', updatedAt: Date.now() })
+      handleRequestCreate('canvas', 'canvases')
     } else if (commandName === 'todo') {
       const title = cmd.primaryArgument || 'Nowe zadanie'
       const prio = (cmd.flags.priority?.toUpperCase() as 'P1' | 'P2' | 'P3') || 'P2'
@@ -462,16 +435,6 @@ export const App: React.FC = () => {
         topicId: cmd.flags.targetCanvas
       })
       await loadTasks()
-    }
-  }
-
-  const handleCliKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && cliInput.trim()) {
-      const parsed = parseCliCommand(cliInput.trim())
-      if (parsed) {
-        handleExecuteCommand(parsed)
-        setCliInput('')
-      }
     }
   }
 
@@ -580,10 +543,7 @@ export const App: React.FC = () => {
               onOpenReview={() => setReviewRunnerOpen(true)}
               onOpenAnalytics={() => setAnalyticsModalOpen(true)}
               onRefreshFiles={refreshFiles}
-              onNewCanvas={(folder) => handleNewCanvas(folder)}
-              onNewMarkdown={(folder) => handleNewMarkdown(folder)}
-              onNewPlainText={(folder) => handleNewPlainText(folder)}
-              onCreateFolder={(parent) => handleCreateFolder(parent)}
+              onRequestCreate={handleRequestCreate}
               onDeletePath={handleDeletePath}
               onRenamePath={handleRenamePath}
             />
@@ -597,7 +557,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Center Main Work Area */}
+        {/* Center Main Work Area (NO BOTTOM FOOTER / NO CLI BAR) */}
         <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0c0c0e] relative">
           {/* Tabs Bar */}
           <div className="h-9 bg-[#111114] border-b border-[#27272a] flex items-center px-1.5 overflow-x-auto no-scrollbar gap-1 text-xs shrink-0">
@@ -717,34 +677,6 @@ export const App: React.FC = () => {
               </div>
             )}
           </main>
-
-          {/* Ultra-Clean Bottom CLI Input Bar (No spammy notifications/logs) */}
-          <footer className="h-7 bg-[#09090b] border-t border-[#27272a] flex items-center px-3 gap-2 text-xs font-mono select-none shrink-0 z-30">
-            <Terminal className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
-            <span className="text-[#38bdf8] font-bold text-[11px] shrink-0">cli&gt;</span>
-            <input
-              type="text"
-              value={cliInput}
-              onChange={(e) => setCliInput(e.target.value)}
-              onKeyDown={handleCliKeyDown}
-              placeholder="Wpisz komendę (#todo Zadanie, #canvas Tablica, #test [P]|[O], #review)..."
-              className="flex-1 bg-transparent text-[#f4f4f5] placeholder-[#52525b] text-[11px] font-mono focus:outline-none"
-            />
-            {cliInput.trim() && (
-              <button
-                onClick={() => {
-                  const parsed = parseCliCommand(cliInput.trim())
-                  if (parsed) {
-                    handleExecuteCommand(parsed)
-                    setCliInput('')
-                  }
-                }}
-                className="p-0.5 rounded text-[#38bdf8] hover:bg-[#27272a]"
-              >
-                <CornerDownLeft className="w-3 h-3" />
-              </button>
-            )}
-          </footer>
         </div>
 
         {/* Right Asset Drawer */}
@@ -757,6 +689,15 @@ export const App: React.FC = () => {
           }}
         />
       </div>
+
+      {/* In-App Create File / Folder Dialog */}
+      <CreateFileDialog
+        isOpen={createModalOpen}
+        defaultType={createModalDefaultType}
+        defaultFolder={createModalDefaultFolder}
+        onClose={() => setCreateModalOpen(false)}
+        onCreate={handleCreateFileOrFolder}
+      />
 
       {/* Floating HUD Widget */}
       {statsHudOpen && (

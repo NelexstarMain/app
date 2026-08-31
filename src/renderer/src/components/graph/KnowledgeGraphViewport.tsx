@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
 import { GraphEdgeRecord } from '../../../../shared/types/database'
-import { ZoomIn, ZoomOut, RefreshCw, Maximize2, Link2, Check, Sparkles } from 'lucide-react'
+import { ZoomIn, ZoomOut, RefreshCw, Link2, Check, Sparkles, Search, CheckSquare, Square } from 'lucide-react'
 
 interface GraphNodeSim {
   id: string
@@ -36,8 +36,11 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const [mouseDownPos, setMouseDownPos] = useState({ x: 0, y: 0 })
   const [filterType, setFilterType] = useState<string | null>(null)
+  const [searchFilter, setSearchFilter] = useState('')
   const [justLinked, setJustLinked] = useState(false)
+  const [showNodeDrawer, setShowNodeDrawer] = useState(true)
   const animFrameRef = useRef<number | null>(null)
   const nodesRef = useRef<GraphNodeSim[]>([])
 
@@ -50,16 +53,16 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
 
         const simNodes: GraphNodeSim[] = res.nodes.map((n: any, idx: number) => {
           const angle = (idx / res.nodes.length) * Math.PI * 2
-          const dist = 140 + Math.random() * 100
+          const dist = 150 + (idx % 3) * 70
           return {
             id: n.id,
             title: n.title,
             type: n.type,
             x: width / 2 + Math.cos(angle) * dist,
             y: height / 2 + Math.sin(angle) * dist,
-            vx: (Math.random() - 0.5) * 1.5,
-            vy: (Math.random() - 0.5) * 1.5,
-            radius: n.type === 'visual_entity' ? 22 : n.type === 'canvas' ? 18 : 15,
+            vx: (Math.random() - 0.5) * 0.8,
+            vy: (Math.random() - 0.5) * 0.8,
+            radius: n.type === 'visual_entity' ? 24 : n.type === 'canvas' ? 20 : 16,
             color: n.type === 'visual_entity' ? '#c084fc' : n.type === 'canvas' ? '#38bdf8' : '#10b981'
           }
         })
@@ -102,7 +105,18 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
 
     setEdges((prev) => [...prev, ...newEdges])
     setJustLinked(true)
-    setTimeout(() => setJustLinked(false), 2000)
+    try {
+      await window.electronAPI.invoke(IpcChannel.DB_CREATE_EDGES, { edges: newEdges })
+    } catch (err) {
+      console.error('Failed to save edges to database:', err)
+    }
+    setTimeout(() => setJustLinked(false), 2500)
+  }
+
+  const toggleNodeSelection = (nodeId: string) => {
+    setSelectedNodeIds((prev) =>
+      prev.includes(nodeId) ? prev.filter((id) => id !== nodeId) : [...prev, nodeId]
+    )
   }
 
   useEffect(() => {
@@ -116,16 +130,16 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
 
       // Physics forces
       const kRep = 700
-      const kSpring = 0.005
-      const restLength = 120
-      const damping = 0.9
+      const kSpring = 0.004
+      const restLength = 130
+      const damping = 0.92
 
       for (let i = 0; i < currentNodes.length; i++) {
         const n1 = currentNodes[i]
         const cx = canvas.width / 2
         const cy = canvas.height / 2
-        n1.vx += (cx - n1.x) * 0.0003
-        n1.vy += (cy - n1.y) * 0.0003
+        n1.vx += (cx - n1.x) * 0.0002
+        n1.vy += (cy - n1.y) * 0.0002
 
         for (let j = i + 1; j < currentNodes.length; j++) {
           const n2 = currentNodes[j]
@@ -198,10 +212,12 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
         // Selection Glow Ring
         if (isSelected) {
           ctx.beginPath()
-          ctx.arc(n.x, n.y, n.radius + 6, 0, Math.PI * 2)
+          ctx.arc(n.x, n.y, n.radius + 8, 0, Math.PI * 2)
           ctx.strokeStyle = '#38bdf8'
           ctx.lineWidth = 3
           ctx.stroke()
+          ctx.fillStyle = 'rgba(56, 189, 248, 0.2)'
+          ctx.fill()
         }
 
         ctx.beginPath()
@@ -212,11 +228,11 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
         ctx.lineWidth = 2.5
         ctx.stroke()
 
-        if (zoom >= 0.4) {
+        if (zoom >= 0.35) {
           ctx.fillStyle = isSelected ? '#38bdf8' : '#f4f4f5'
           ctx.font = 'bold 11px Inter, sans-serif'
           ctx.textAlign = 'center'
-          ctx.fillText(n.title, n.x, n.y + n.radius + 14)
+          ctx.fillText(n.title, n.x, n.y + n.radius + 15)
         }
       }
 
@@ -230,37 +246,8 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
     }
   }, [edges, zoom, pan, filterType, selectedNodeIds])
 
-  const handleCanvasClick = (e: React.MouseEvent) => {
-    const rect = canvasRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const mouseX = (e.clientX - rect.left - pan.x) / zoom
-    const mouseY = (e.clientY - rect.top - pan.y) / zoom
-
-    // Find clicked node
-    const clickedNode = nodesRef.current.find((n) => {
-      const dx = n.x - mouseX
-      const dy = n.y - mouseY
-      return Math.sqrt(dx * dx + dy * dy) <= n.radius + 6
-    })
-
-    if (clickedNode) {
-      if (e.shiftKey) {
-        // Multi-select with Shift
-        setSelectedNodeIds((prev) =>
-          prev.includes(clickedNode.id) ? prev.filter((id) => id !== clickedNode.id) : [...prev, clickedNode.id]
-        )
-      } else {
-        setSelectedNodeIds([clickedNode.id])
-        if (onNodeClick) onNodeClick(clickedNode.id, clickedNode.type)
-      }
-    } else {
-      if (!e.shiftKey) {
-        setSelectedNodeIds([])
-      }
-    }
-  }
-
   const handleMouseDown = (e: React.MouseEvent) => {
+    setMouseDownPos({ x: e.clientX, y: e.clientY })
     setIsDragging(true)
     setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
     onActivity()
@@ -273,7 +260,30 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
     }
   }
 
-  const handleMouseUp = () => setIsDragging(false)
+  const handleMouseUp = (e: React.MouseEvent) => {
+    setIsDragging(false)
+
+    // Detect Click vs Drag (if moved less than 6 pixels)
+    const distMoved = Math.hypot(e.clientX - mouseDownPos.x, e.clientY - mouseDownPos.y)
+    if (distMoved < 6) {
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const mouseX = (e.clientX - rect.left - pan.x) / zoom
+      const mouseY = (e.clientY - rect.top - pan.y) / zoom
+
+      // Hit area radius + 18
+      const clickedNode = nodesRef.current.find((n) => {
+        const dx = n.x - mouseX
+        const dy = n.y - mouseY
+        return Math.sqrt(dx * dx + dy * dy) <= n.radius + 18
+      })
+
+      if (clickedNode) {
+        toggleNodeSelection(clickedNode.id)
+        if (onNodeClick) onNodeClick(clickedNode.id, clickedNode.type)
+      }
+    }
+  }
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault()
@@ -281,6 +291,10 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
     const factor = e.deltaY < 0 ? 1.08 : 0.92
     setZoom((z) => Math.max(0.15, Math.min(3.0, z * factor)))
   }
+
+  const filteredNodes = nodes.filter((n) =>
+    n.title.toLowerCase().includes(searchFilter.toLowerCase())
+  )
 
   return (
     <div className="h-full w-full bg-[#09090b] relative overflow-hidden select-none">
@@ -311,28 +325,95 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
 
       {/* Floating Multi-Select & Link Bar */}
       {selectedNodeIds.length > 1 && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#18181b]/95 border border-[#38bdf8]/50 shadow-2xl text-xs backdrop-blur-md">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#18181b]/95 border border-[#38bdf8] shadow-2xl text-xs backdrop-blur-md animate-in fade-in">
           <span className="font-semibold text-[#f4f4f5]">Zaznaczono {selectedNodeIds.length} węzłów</span>
           <button
             onClick={handleConnectSelected}
-            className="px-3 py-1 rounded-lg bg-gradient-to-r from-[#38bdf8] to-[#10b981] text-black font-bold text-xs flex items-center gap-1.5 shadow-md hover:opacity-90 transition-opacity"
+            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-[#38bdf8] to-[#10b981] text-black font-bold text-xs flex items-center gap-1.5 shadow-md hover:opacity-90 transition-opacity"
           >
-            {justLinked ? <Check className="w-3.5 h-3.5" /> : <Link2 className="w-3.5 h-3.5" />}
-            <span>{justLinked ? 'Połączono!' : 'Połącz zaznaczone'}</span>
+            {justLinked ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
+            <span>{justLinked ? 'Połączono pomyślnie!' : 'Połącz zaznaczone relacją'}</span>
           </button>
         </div>
       )}
 
-      {/* Instruction Tip */}
-      <div className="absolute bottom-4 left-4 z-20 text-[10px] text-[#71717a] bg-[#18181b]/80 px-2 py-1 rounded-lg border border-[#27272a]">
-        Wskazówka: Przytrzymaj <kbd className="font-mono bg-[#27272a] px-1 py-0.2 rounded text-[#f4f4f5]">Shift</kbd> i klikaj kulki, aby zaznaczyć kilka i połączyć je relacją.
+      {/* Interactive Node Selection Sidebar Drawer */}
+      <div className="absolute top-4 right-4 z-30 w-64 max-h-[calc(100%-32px)] bg-[#141519]/95 border border-[#27272a] rounded-2xl shadow-2xl backdrop-blur-md flex flex-col text-xs overflow-hidden">
+        <div className="p-3 border-b border-[#27272a] flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-semibold text-[#f4f4f5]">
+            <Sparkles className="w-3.5 h-3.5 text-[#38bdf8]" />
+            <span>Węzły grafu ({nodes.length})</span>
+          </div>
+          {selectedNodeIds.length > 0 && (
+            <button
+              onClick={() => setSelectedNodeIds([])}
+              className="text-[10px] text-[#71717a] hover:text-[#fb7185]"
+            >
+              Odznacz
+            </button>
+          )}
+        </div>
+
+        {/* Search Input */}
+        <div className="p-2 border-b border-[#27272a]">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#18181b] border border-[#27272a]">
+            <Search className="w-3 h-3 text-[#71717a]" />
+            <input
+              type="text"
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              placeholder="Szukaj węzła..."
+              className="w-full bg-transparent text-[11px] text-[#f4f4f5] placeholder-[#52525b] focus:outline-none"
+            />
+          </div>
+        </div>
+
+        {/* Node List with Checkboxes */}
+        <div className="flex-1 overflow-y-auto p-2 space-y-1 max-h-72">
+          {filteredNodes.map((n) => {
+            const isSelected = selectedNodeIds.includes(n.id)
+            return (
+              <div
+                key={n.id}
+                onClick={() => toggleNodeSelection(n.id)}
+                className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer transition-colors ${
+                  isSelected
+                    ? 'bg-[#18181b] text-[#38bdf8] font-semibold border border-[#38bdf8]/40'
+                    : 'text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+                }`}
+              >
+                {isSelected ? (
+                  <CheckSquare className="w-4 h-4 text-[#38bdf8] shrink-0" />
+                ) : (
+                  <Square className="w-4 h-4 text-[#52525b] shrink-0" />
+                )}
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: n.color }}
+                />
+                <span className="truncate text-[11px] flex-1">{n.title}</span>
+              </div>
+            )
+          })}
+        </div>
+
+        {selectedNodeIds.length >= 2 && (
+          <div className="p-2 border-t border-[#27272a]">
+            <button
+              onClick={handleConnectSelected}
+              className="w-full py-2 rounded-xl bg-gradient-to-r from-[#38bdf8] to-[#10b981] text-black font-bold text-xs flex items-center justify-center gap-1.5 shadow-md hover:opacity-90"
+            >
+              <Link2 className="w-4 h-4" />
+              <span>Połącz wybrane ({selectedNodeIds.length})</span>
+            </button>
+          </div>
+        )}
       </div>
 
       <canvas
         ref={canvasRef}
         width={window.innerWidth}
         height={window.innerHeight}
-        onClick={handleCanvasClick}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

@@ -376,6 +376,13 @@ export class DatabaseService {
     }
   }
 
+  public createEdges(newEdges: GraphEdgeRecord[]): void {
+    for (const edge of newEdges) {
+      this.edges.set(edge.edge_id, edge)
+    }
+    this.persistToDisk()
+  }
+
   // --- Tasks (Topics & Things to Do) ---
   public getTasks(statusFilter?: string): TaskTodoRecord[] {
     const list = Array.from(this.tasks.values())

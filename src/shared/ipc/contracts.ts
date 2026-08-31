@@ -74,6 +74,10 @@ export interface IpcContracts {
       error?: string
     }
   }
+  [IpcChannel.DB_CREATE_EDGES]: {
+    request: { edges: GraphEdgeRecord[] }
+    response: { success: boolean; error?: string }
+  }
   [IpcChannel.DB_GET_TASKS]: {
     request: { status?: string }
     response: { tasks: TaskTodoRecord[]; error?: string }

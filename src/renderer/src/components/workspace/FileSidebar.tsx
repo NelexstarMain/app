@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { FileItem } from '../../../../shared/types/workspace'
 import { IpcChannel } from '../../../../shared/ipc/channels'
+import { FileCreationType } from './CreateFileDialog'
 
 interface Props {
   workspacePath: string
@@ -29,10 +30,7 @@ interface Props {
   onOpenReview: () => void
   onOpenAnalytics: () => void
   onRefreshFiles: () => void
-  onNewCanvas: (folderPath?: string) => void
-  onNewMarkdown: (folderPath?: string) => void
-  onNewPlainText: (folderPath?: string) => void
-  onCreateFolder?: (parentPath?: string) => void
+  onRequestCreate: (defaultType?: FileCreationType, folder?: string) => void
   onDeletePath?: (relativePath: string) => void
   onRenamePath?: (oldPath: string, newName: string) => void
 }
@@ -47,10 +45,7 @@ export const FileSidebar: React.FC<Props> = ({
   onOpenReview,
   onOpenAnalytics,
   onRefreshFiles,
-  onNewCanvas,
-  onNewMarkdown,
-  onNewPlainText,
-  onCreateFolder,
+  onRequestCreate,
   onDeletePath,
   onRenamePath
 }) => {
@@ -61,7 +56,6 @@ export const FileSidebar: React.FC<Props> = ({
   })
   const [isReindexing, setIsReindexing] = useState(false)
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
-  const [newMenuOpen, setNewMenuOpen] = useState(false)
 
   const toggleDir = (dirPath: string) => {
     setExpandedDirs((prev) => ({ ...prev, [dirPath]: !prev[dirPath] }))
@@ -128,22 +122,12 @@ export const FileSidebar: React.FC<Props> = ({
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    onNewCanvas(item.relativePath)
+                    onRequestCreate('canvas', item.relativePath)
                   }}
-                  title="Nowa tablica w folderze"
-                  className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#a855f7]"
-                >
-                  <LayoutGrid className="w-3 h-3" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onNewMarkdown(item.relativePath)
-                  }}
-                  title="Nowa notatka .md w folderze"
+                  title="Nowy plik w folderze"
                   className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#38bdf8]"
                 >
-                  <FileText className="w-3 h-3" />
+                  <Plus className="w-3 h-3" />
                 </button>
                 {onDeletePath && (
                   <button
@@ -240,61 +224,15 @@ export const FileSidebar: React.FC<Props> = ({
           </span>
         </div>
 
-        <div className="flex items-center gap-1 relative">
+        <div className="flex items-center gap-1">
           <button
-            onClick={() => setNewMenuOpen(!newMenuOpen)}
-            title="Nowy plik / folder"
-            className="p-1 rounded-md text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors"
+            onClick={() => onRequestCreate('canvas', 'canvases')}
+            title="Nowy plik lub folder"
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-[#18181b] hover:bg-[#27272a] text-[11px] text-[#38bdf8] font-semibold border border-[#38bdf8]/40 transition-colors shadow-sm"
           >
-            <Plus className="w-4 h-4 text-[#38bdf8]" />
+            <Plus className="w-3.5 h-3.5" />
+            <span>Dodaj</span>
           </button>
-
-          {newMenuOpen && (
-            <div className="absolute right-0 top-8 w-44 p-1 rounded-xl bg-[#18181b] border border-[#3f3f46] shadow-2xl z-50 flex flex-col gap-0.5 text-xs">
-              <button
-                onClick={() => {
-                  setNewMenuOpen(false)
-                  onNewCanvas()
-                }}
-                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-[#27272a] text-[#f4f4f5] text-left"
-              >
-                <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7]" />
-                <span>Nowa Tablica (.canvas)</span>
-              </button>
-              <button
-                onClick={() => {
-                  setNewMenuOpen(false)
-                  onNewMarkdown()
-                }}
-                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-[#27272a] text-[#f4f4f5] text-left"
-              >
-                <FileText className="w-3.5 h-3.5 text-[#38bdf8]" />
-                <span>Notatka (.md)</span>
-              </button>
-              <button
-                onClick={() => {
-                  setNewMenuOpen(false)
-                  onNewPlainText()
-                }}
-                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-[#27272a] text-[#f4f4f5] text-left"
-              >
-                <AlignLeft className="w-3.5 h-3.5 text-[#10b981]" />
-                <span>Czysty Tekst (.txt)</span>
-              </button>
-              {onCreateFolder && (
-                <button
-                  onClick={() => {
-                    setNewMenuOpen(false)
-                    onCreateFolder()
-                  }}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-[#27272a] text-[#f4f4f5] text-left border-t border-[#27272a]"
-                >
-                  <FolderPlus className="w-3.5 h-3.5 text-[#f59e0b]" />
-                  <span>Nowy Folder</span>
-                </button>
-              )}
-            </div>
-          )}
 
           <button
             onClick={handleColdReindex}

@@ -15,8 +15,7 @@ import {
   Layers,
   ChevronUp,
   ChevronDown,
-  Sparkles,
-  Move
+  Sparkles
 } from 'lucide-react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
 
@@ -136,7 +135,7 @@ export const CanvasViewport: React.FC<Props> = ({
     return () => window.removeEventListener('paste', handlePaste)
   }, [doc, pan, zoom])
 
-  // Keyboard Shortcuts (Delete, V, H, P, E, T, S, R, O, A, L, Q)
+  // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = window.document.activeElement
@@ -183,7 +182,7 @@ export const CanvasViewport: React.FC<Props> = ({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [doc, selectedNodeIds, editingNodeId])
 
-  // Coordinate Conversion
+  // Coordinate Conversion (World Coordinates)
   const toWorldCoords = (clientX: number, clientY: number) => {
     const rect = containerRef.current?.getBoundingClientRect() || { left: 0, top: 0 }
     return {
@@ -210,7 +209,7 @@ export const CanvasViewport: React.FC<Props> = ({
     }
   }
 
-  // Mouse Down (Includes Right Mouse Button Pan)
+  // Mouse Down
   const handleMouseDown = (e: React.MouseEvent) => {
     onActivity()
     const world = toWorldCoords(e.clientX, e.clientY)
@@ -229,7 +228,7 @@ export const CanvasViewport: React.FC<Props> = ({
       return
     }
 
-    // Creating new objects by clicking
+    // Creating new objects by clicking on canvas
     if (e.button === 0) {
       if (activeTool === 'text') {
         const newNode: CanvasNode = {
@@ -321,7 +320,7 @@ export const CanvasViewport: React.FC<Props> = ({
       }
 
       // Default Canvas Background Click
-      if (e.target === containerRef.current || (e.target as HTMLElement).tagName === 'svg') {
+      if (e.target === containerRef.current || (e.target as HTMLElement).tagName === 'svg' || (e.target as HTMLElement).tagName === 'g') {
         setSelectedNodeIds([])
         setEditingNodeId(null)
         setIsPanning(true)
@@ -375,27 +374,71 @@ export const CanvasViewport: React.FC<Props> = ({
     }
   }
 
+  // Global Mouse Up Listener to prevent stuck drag/draw
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isPanning) setIsPanning(false)
+      if (resizingNodeId) {
+        setResizingNodeId(null)
+        onDocumentChanged(doc)
+      }
+      if (draggedNodeId) {
+        setDraggedNodeId(null)
+        onDocumentChanged(doc)
+      }
+      if (connectingFrom) {
+        setConnectingFrom(null)
+        setConnectingMousePos(null)
+      }
+      if (isDrawing) {
+        if (currentStroke.length > 1) {
+          const newStrokeNode: CanvasNode = {
+            id: `stroke_${Date.now()}`,
+            type: 'drawing_stroke',
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            data: {
+              points: currentStroke,
+              color: penColor,
+              width: penWidth
+            }
+          }
+          notifyChange({ ...doc, nodes: [...doc.nodes, newStrokeNode] })
+        }
+        setCurrentStroke([])
+        setIsDrawing(false)
+      }
+    }
+
+    window.addEventListener('mouseup', handleGlobalMouseUp)
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
+  }, [doc, isPanning, resizingNodeId, draggedNodeId, connectingFrom, isDrawing, currentStroke, penColor, penWidth])
+
   // Mouse Up
   const handleMouseUp = () => {
     if (isPanning) {
       setIsPanning(false)
     }
 
-    if (isDrawing && currentStroke.length > 1) {
-      const newStrokeNode: CanvasNode = {
-        id: `stroke_${Date.now()}`,
-        type: 'drawing_stroke',
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-        data: {
-          points: currentStroke,
-          color: penColor,
-          width: penWidth
+    if (isDrawing) {
+      if (currentStroke.length > 1) {
+        const newStrokeNode: CanvasNode = {
+          id: `stroke_${Date.now()}`,
+          type: 'drawing_stroke',
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+          data: {
+            points: currentStroke,
+            color: penColor,
+            width: penWidth
+          }
         }
+        notifyChange({ ...doc, nodes: [...doc.nodes, newStrokeNode] })
       }
-      notifyChange({ ...doc, nodes: [...doc.nodes, newStrokeNode] })
       setCurrentStroke([])
       setIsDrawing(false)
     }
@@ -636,11 +679,8 @@ export const CanvasViewport: React.FC<Props> = ({
         </button>
       </div>
 
-      {/* SVG Canvas Layer for Drawings and Arrows */}
-      <svg
-        className="absolute inset-0 pointer-events-none w-full h-full"
-        style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}
-      >
+      {/* UNBOUNDED FULL-SCREEN SVG LAYER */}
+      <svg className="absolute inset-0 pointer-events-none w-full h-full overflow-visible">
         <defs>
           <marker
             id="wb-arrow"
@@ -666,91 +706,93 @@ export const CanvasViewport: React.FC<Props> = ({
           </marker>
         </defs>
 
-        {/* Existing Drawing Strokes */}
-        {doc.nodes
-          .filter((n) => n.type === 'drawing_stroke' && n.data?.points)
-          .map((stroke) => (
+        <g style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
+          {/* Existing Drawing Strokes */}
+          {doc.nodes
+            .filter((n) => n.type === 'drawing_stroke' && n.data?.points)
+            .map((stroke) => (
+              <path
+                key={stroke.id}
+                d={renderStrokePath(stroke.data.points)}
+                stroke={stroke.data.color || '#f4f4f5'}
+                strokeWidth={stroke.data.width || 3}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={activeTool === 'eraser' ? 'pointer-events-auto hover:opacity-40 cursor-pointer' : ''}
+                onClick={() => {
+                  if (activeTool === 'eraser') {
+                    notifyChange({ ...doc, nodes: doc.nodes.filter((n) => n.id !== stroke.id) })
+                  }
+                }}
+              />
+            ))}
+
+          {/* Current Active Freehand Stroke */}
+          {isDrawing && currentStroke.length > 1 && (
             <path
-              key={stroke.id}
-              d={renderStrokePath(stroke.data.points)}
-              stroke={stroke.data.color || '#f4f4f5'}
-              strokeWidth={stroke.data.width || 3}
+              d={renderStrokePath(currentStroke)}
+              stroke={penColor}
+              strokeWidth={penWidth}
               fill="none"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className={activeTool === 'eraser' ? 'pointer-events-auto hover:opacity-40 cursor-pointer' : ''}
-              onClick={() => {
-                if (activeTool === 'eraser') {
-                  notifyChange({ ...doc, nodes: doc.nodes.filter((n) => n.id !== stroke.id) })
-                }
-              }}
             />
-          ))}
+          )}
 
-        {/* Current Active Freehand Stroke */}
-        {isDrawing && currentStroke.length > 1 && (
-          <path
-            d={renderStrokePath(currentStroke)}
-            stroke={penColor}
-            strokeWidth={penWidth}
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        )}
+          {/* Connectors / Arrows between Nodes */}
+          {doc.edges.map((edge) => {
+            const coords = getEdgeCoordinates(edge)
+            if (!coords) return null
+            const isSoft = edge.style === 'dotted' || edge.style === 'soft_link'
+            return (
+              <g key={edge.id} className="pointer-events-auto">
+                <line
+                  x1={coords.x1}
+                  y1={coords.y1}
+                  x2={coords.x2}
+                  y2={coords.y2}
+                  stroke={edge.color || (isSoft ? '#71717a' : '#38bdf8')}
+                  strokeWidth={isSoft ? '1.5' : '2'}
+                  strokeDasharray={isSoft ? '4 4' : edge.style === 'dashed' ? '6 6' : undefined}
+                  markerEnd={isSoft ? 'url(#wb-soft-arrow)' : 'url(#wb-arrow)'}
+                />
+                {edge.label && (
+                  <text
+                    x={(coords.x1 + coords.x2) / 2}
+                    y={(coords.y1 + coords.y2) / 2 - 6}
+                    fill={isSoft ? '#71717a' : '#a1a1aa'}
+                    fontSize="10"
+                    fontFamily="Inter, sans-serif"
+                    fontWeight="600"
+                    textAnchor="middle"
+                  >
+                    {edge.label}
+                  </text>
+                )}
+              </g>
+            )
+          })}
 
-        {/* Connectors / Arrows between Nodes */}
-        {doc.edges.map((edge) => {
-          const coords = getEdgeCoordinates(edge)
-          if (!coords) return null
-          const isSoft = edge.style === 'dotted' || edge.style === 'soft_link'
-          return (
-            <g key={edge.id} className="pointer-events-auto">
-              <line
-                x1={coords.x1}
-                y1={coords.y1}
-                x2={coords.x2}
-                y2={coords.y2}
-                stroke={edge.color || (isSoft ? '#71717a' : '#38bdf8')}
-                strokeWidth={isSoft ? '1.5' : '2'}
-                strokeDasharray={isSoft ? '4 4' : edge.style === 'dashed' ? '6 6' : undefined}
-                markerEnd={isSoft ? 'url(#wb-soft-arrow)' : 'url(#wb-arrow)'}
-              />
-              {edge.label && (
-                <text
-                  x={(coords.x1 + coords.x2) / 2}
-                  y={(coords.y1 + coords.y2) / 2 - 6}
-                  fill={isSoft ? '#71717a' : '#a1a1aa'}
-                  fontSize="10"
-                  fontFamily="Inter, sans-serif"
-                  fontWeight="600"
-                  textAnchor="middle"
-                >
-                  {edge.label}
-                </text>
-              )}
-            </g>
-          )
-        })}
-
-        {/* Dynamic Arrow Preview during Dragging */}
-        {connectingFrom && connectingMousePos && (
-          <line
-            x1={0}
-            y1={0}
-            x2={connectingMousePos.x}
-            y2={connectingMousePos.y}
-            stroke="#38bdf8"
-            strokeWidth="2"
-            strokeDasharray="4 4"
-            markerEnd="url(#wb-arrow)"
-          />
-        )}
+          {/* Dynamic Arrow Preview during Dragging */}
+          {connectingFrom && connectingMousePos && (
+            <line
+              x1={0}
+              y1={0}
+              x2={connectingMousePos.x}
+              y2={connectingMousePos.y}
+              stroke="#38bdf8"
+              strokeWidth="2"
+              strokeDasharray="4 4"
+              markerEnd="url(#wb-arrow)"
+            />
+          )}
+        </g>
       </svg>
 
-      {/* Interactive Whiteboard Nodes Container */}
+      {/* UNBOUNDED FULL-SCREEN NODES CONTAINER */}
       <div
-        className="absolute inset-0 pointer-events-none w-full h-full"
+        className="absolute inset-0 pointer-events-none w-full h-full overflow-visible"
         style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}
       >
         {doc.nodes
@@ -768,6 +810,9 @@ export const CanvasViewport: React.FC<Props> = ({
                   minHeight: `${node.height}px`
                 }}
                 onMouseDown={(e) => {
+                  if (activeTool === 'pen') {
+                    return
+                  }
                   if (activeTool === 'eraser') {
                     notifyChange({ ...doc, nodes: doc.nodes.filter((n) => n.id !== node.id) })
                     return
@@ -781,7 +826,7 @@ export const CanvasViewport: React.FC<Props> = ({
                     onActivity()
                   }
                 }}
-                className={`absolute pointer-events-auto rounded-2xl transition-all shadow-xl ${
+                className={`absolute ${activeTool === 'pen' ? 'pointer-events-none' : 'pointer-events-auto'} rounded-2xl transition-all shadow-xl ${
                   isHighlighted
                     ? 'ring-4 ring-[#10b981] scale-105 shadow-2xl animate-pulse'
                     : isSelected
@@ -790,7 +835,7 @@ export const CanvasViewport: React.FC<Props> = ({
                 }`}
               >
                 {/* 4 Connection Anchors */}
-                {renderAnchors(node)}
+                {activeTool !== 'pen' && renderAnchors(node)}
 
                 {/* 1. Markdown Text Card */}
                 {node.type === 'text_card' && (
@@ -816,16 +861,17 @@ export const CanvasViewport: React.FC<Props> = ({
                         <textarea
                           value={node.data.markdown || ''}
                           onChange={(e) => {
-                            const newHeight = Math.max(160, e.target.scrollHeight + 40)
+                            const scrollH = e.target.scrollHeight
+                            const newHeight = Math.max(180, scrollH + 80)
                             const updated = doc.nodes.map((n) =>
                               n.id === node.id
-                                ? { ...n, height: newHeight, data: { ...n.data, markdown: e.target.value } }
+                                ? { ...n, height: Math.max(n.height, newHeight), data: { ...n.data, markdown: e.target.value } }
                                 : n
                             )
                             setDoc({ ...doc, nodes: updated })
                           }}
                           placeholder="Treść notatki... (użyj [hasło] do linkowania)"
-                          className="flex-1 bg-transparent text-[#f4f4f5] resize-none focus:outline-none font-mono text-[11px] min-h-[90px] break-words break-all"
+                          className="flex-1 bg-transparent text-[#f4f4f5] resize-none focus:outline-none font-mono text-[11px] min-h-[90px] break-words break-all leading-relaxed"
                         />
                         <button
                           onClick={() => {
@@ -868,17 +914,18 @@ export const CanvasViewport: React.FC<Props> = ({
                         <textarea
                           value={node.data.text || ''}
                           onChange={(e) => {
-                            const newHeight = Math.max(180, e.target.scrollHeight + 60)
+                            const scrollH = e.target.scrollHeight
+                            const newHeight = Math.max(200, scrollH + 70)
                             const updated = doc.nodes.map((n) =>
                               n.id === node.id
-                                ? { ...n, height: newHeight, data: { ...n.data, text: e.target.value } }
+                                ? { ...n, height: Math.max(n.height, newHeight), data: { ...n.data, text: e.target.value } }
                                 : n
                             )
                             setDoc({ ...doc, nodes: updated })
                           }}
                           autoFocus
                           placeholder="Wpisz treść..."
-                          className="flex-1 bg-transparent text-inherit resize-none focus:outline-none text-xs font-medium break-words break-all"
+                          className="flex-1 bg-transparent text-inherit resize-none focus:outline-none text-xs font-medium break-words break-all leading-relaxed"
                         />
                         <div className="flex items-center justify-between pt-1 border-t border-white/10">
                           {/* Muted Pastel Color Switcher */}
@@ -967,8 +1014,10 @@ export const CanvasViewport: React.FC<Props> = ({
                       <textarea
                         value={node.data.text || node.data.label || ''}
                         onChange={(e) => {
+                          const scrollH = e.target.scrollHeight
+                          const newHeight = Math.max(160, scrollH + 50)
                           const updated = doc.nodes.map((n) =>
-                            n.id === node.id ? { ...n, data: { ...n.data, text: e.target.value, label: e.target.value } } : n
+                            n.id === node.id ? { ...n, height: Math.max(n.height, newHeight), data: { ...n.data, text: e.target.value, label: e.target.value } } : n
                           )
                           setDoc({ ...doc, nodes: updated })
                         }}
@@ -980,7 +1029,7 @@ export const CanvasViewport: React.FC<Props> = ({
                         }}
                         autoFocus
                         placeholder="Wpisz treść..."
-                        className="w-full h-full bg-transparent text-[#f4f4f5] text-center resize-none focus:outline-none text-xs font-semibold break-words break-all"
+                        className="w-full h-full bg-transparent text-[#f4f4f5] text-center resize-none focus:outline-none text-xs font-semibold break-words break-all leading-relaxed"
                       />
                     ) : (
                       <span className="font-semibold text-[#f4f4f5] text-center leading-relaxed break-words break-all" style={{ overflowWrap: 'anywhere' }}>

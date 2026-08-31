@@ -129,6 +129,17 @@ export function registerIpcHandlers(
     }
   })
 
+  ipcMain.handle(IpcChannel.DB_CREATE_EDGES, async (_, payload: { edges: any[] }) => {
+    try {
+      if (payload.edges && payload.edges.length > 0) {
+        dbService.createEdges(payload.edges)
+      }
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
   ipcMain.handle(IpcChannel.DB_GET_TASKS, async (_, payload: { status?: string }) => {
     try {
       const tasks = dbService.getTasks(payload?.status)

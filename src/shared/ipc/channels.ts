@@ -13,6 +13,7 @@ export enum IpcChannel {
   // SQLite Database & FTS5
   DB_QUERY_FTS = 'db:query-fts',
   DB_GET_GRAPH_DATA = 'db:get-graph-data',
+  DB_CREATE_EDGES = 'db:create-edges',
   DB_GET_TASKS = 'db:get-tasks',
   DB_CREATE_TASK = 'db:create-task',
   DB_UPDATE_TASK = 'db:update-task',
