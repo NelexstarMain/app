@@ -41,6 +41,14 @@ export interface IpcContracts {
     request: { relativePath: string }
     response: { success: boolean; error?: string }
   }
+  [IpcChannel.FILE_CREATE_FOLDER]: {
+    request: { relativePath: string }
+    response: { success: boolean; error?: string }
+  }
+  [IpcChannel.FILE_RENAME]: {
+    request: { oldPath: string; newName: string }
+    response: { success: boolean; newPath?: string; error?: string }
+  }
   [IpcChannel.FILE_LIST]: {
     request: { subDir?: string }
     response: { items: FileItem[]; error?: string }
@@ -76,6 +84,10 @@ export interface IpcContracts {
   }
   [IpcChannel.DB_UPDATE_TASK]: {
     request: { taskId: string; status?: string; priority?: TaskPriority; completedAt?: number | null }
+    response: { success: boolean; error?: string }
+  }
+  [IpcChannel.DB_DELETE_TASK]: {
+    request: { taskId: string }
     response: { success: boolean; error?: string }
   }
   [IpcChannel.DB_GET_SRS_DUE]: {

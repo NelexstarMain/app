@@ -83,6 +83,24 @@ export function registerIpcHandlers(
     }
   })
 
+  ipcMain.handle(IpcChannel.FILE_CREATE_FOLDER, async (_, payload: { relativePath: string }) => {
+    try {
+      const res = fsService.createFolder(payload.relativePath)
+      return { success: res }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle(IpcChannel.FILE_RENAME, async (_, payload: { oldPath: string; newName: string }) => {
+    try {
+      const res = fsService.renamePath(payload.oldPath, payload.newName)
+      return res
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
   ipcMain.handle(IpcChannel.FILE_LIST, async (_, payload: { subDir?: string }) => {
     try {
       const items = fsService.listFiles(payload?.subDir || '')
@@ -136,6 +154,15 @@ export function registerIpcHandlers(
         priority: payload.priority,
         completed_at: payload.completedAt
       })
+      return { success }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle(IpcChannel.DB_DELETE_TASK, async (_, payload: { taskId: string }) => {
+    try {
+      const success = dbService.deleteTask(payload.taskId)
       return { success }
     } catch (err: any) {
       return { success: false, error: err.message }

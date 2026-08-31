@@ -202,10 +202,31 @@ Ostatni król Polski, mecenas sztuki i współtwórca reform Sejmu Czteroletnieg
   public deleteFile(relativePath: string): boolean {
     const fullPath = this.resolveSafePath(relativePath)
     if (fs.existsSync(fullPath)) {
-      fs.unlinkSync(fullPath)
+      fs.rmSync(fullPath, { recursive: true, force: true })
       return true
     }
     return false
+  }
+
+  public createFolder(relativePath: string): boolean {
+    const fullPath = this.resolveSafePath(relativePath)
+    if (!fs.existsSync(fullPath)) {
+      fs.mkdirSync(fullPath, { recursive: true })
+      return true
+    }
+    return true
+  }
+
+  public renamePath(oldRelativePath: string, newName: string): { success: boolean; newPath: string } {
+    const oldFullPath = this.resolveSafePath(oldRelativePath)
+    if (!fs.existsSync(oldFullPath)) {
+      throw new Error(`Path not found: ${oldRelativePath}`)
+    }
+    const parentDir = path.dirname(oldFullPath)
+    const newFullPath = path.join(parentDir, newName)
+    fs.renameSync(oldFullPath, newFullPath)
+    const newRelative = path.relative(this.workspacePath!, newFullPath).replace(/\\/g, '/')
+    return { success: true, newPath: newRelative }
   }
 
   public listFiles(subDir = ''): FileItem[] {

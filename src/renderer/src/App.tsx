@@ -5,7 +5,7 @@ import { CanvasDocument } from '../../shared/types/canvas'
 import { TaskTodoRecord } from '../../shared/types/database'
 import { SessionManager } from './state/sessionStore'
 import { ParsedCommand } from '../../shared/types/commands'
-import { LayoutGrid, FileText, Share2, BookOpen, BarChart2, X, Plus } from 'lucide-react'
+import { LayoutGrid, Share2, CheckSquare, BookOpen, BarChart2, X, Plus } from 'lucide-react'
 
 // Components
 import { WorkspaceSelector } from './components/workspace/WorkspaceSelector'
@@ -14,11 +14,11 @@ import { SessionHeader } from './components/session/SessionHeader'
 import { SessionKickoffModal } from './components/session/SessionKickoffModal'
 import { SessionEvaluationModal } from './components/session/SessionEvaluationModal'
 import { SessionStatsHud } from './components/session/SessionStatsHud'
-import { MarkdownEditor } from './components/editor/MarkdownEditor'
 import { CanvasViewport } from './components/canvas/CanvasViewport'
 import { KnowledgeGraphViewport } from './components/graph/KnowledgeGraphViewport'
+import { TaskManagementView } from './components/tasks/TaskManagementView'
 import { CommandPalette } from './components/terminal/CommandPalette'
-import { BottomStatusBar } from './components/terminal/BottomStatusBar'
+import { BottomConsolePanel, LogEntry } from './components/terminal/BottomConsolePanel'
 import { AssetDrawer } from './components/drawer/AssetDrawer'
 import { SrsReviewRunner } from './components/review/SrsReviewRunner'
 import { AnalyticsModal } from './components/analytics/AnalyticsModal'
@@ -27,7 +27,7 @@ interface OpenTab {
   id: string
   path: string
   title: string
-  type: 'note' | 'canvas' | 'graph'
+  type: 'canvas' | 'graph' | 'tasks'
 }
 
 export const App: React.FC = () => {
@@ -35,21 +35,21 @@ export const App: React.FC = () => {
   const [fileTree, setFileTree] = useState<FileItem[]>([])
   const [tasks, setTasks] = useState<TaskTodoRecord[]>([])
 
-  // Activity bar mode
-  const [activityMode, setActivityMode] = useState<'canvas' | 'notes' | 'graph' | 'review' | 'analytics'>('canvas')
+  // Layout & Resizable Splitters
+  const [sidebarWidth, setSidebarWidth] = useState(240)
+  const [consoleHeight, setConsoleHeight] = useState(130)
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+
+  // Active view modes: 'canvas' | 'graph' | 'tasks'
+  const [activeType, setActiveType] = useState<'canvas' | 'graph' | 'tasks'>('canvas')
 
   // Tabs state
   const [openTabs, setOpenTabs] = useState<OpenTab[]>([
-    { id: 'tab_canvas_1', path: 'canvases/Rozbiory_Polski.canvas.json', title: 'Rozbiory Polski', type: 'canvas' },
-    { id: 'tab_note_1', path: 'notes/Historia/Poniatowski.md', title: 'Poniatowski', type: 'note' }
+    { id: 'tab_canvas_1', path: 'canvases/Rozbiory_Polski.canvas.json', title: 'Rozbiory Polski', type: 'canvas' }
   ])
   const [activeTabId, setActiveTabId] = useState<string>('tab_canvas_1')
-
-  // Document contents
   const [activePath, setActivePath] = useState<string | null>('canvases/Rozbiory_Polski.canvas.json')
-  const [activeType, setActiveType] = useState<'note' | 'canvas' | 'graph'>('canvas')
-  const [noteContent, setNoteContent] = useState<string>('')
   const [canvasDoc, setCanvasDoc] = useState<CanvasDocument | null>(null)
 
   // Modals & Drawers
@@ -61,6 +61,23 @@ export const App: React.FC = () => {
   const [kickoffOpen, setKickoffOpen] = useState(false)
   const [evaluationOpen, setEvaluationOpen] = useState(false)
   const [drawerSearchQuery, setDrawerSearchQuery] = useState('')
+
+  // Console Logs
+  const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([
+    {
+      id: 'log_1',
+      timestamp: new Date().toLocaleTimeString(),
+      type: 'info',
+      message: 'System CogniCanvas v1.5 Master Edition zainicjalizowany. Baza SQLite WAL gotowa.'
+    }
+  ])
+
+  const addLog = (type: 'info' | 'success' | 'command' | 'warn', message: string) => {
+    setConsoleLogs((prev) => [
+      ...prev.slice(-100),
+      { id: `log_${Date.now()}_${Math.random()}`, timestamp: new Date().toLocaleTimeString(), type, message }
+    ])
+  }
 
   // Session Manager
   const sessionManagerRef = useRef<SessionManager>(new SessionManager())
@@ -88,6 +105,11 @@ export const App: React.FC = () => {
   // 2. Global Shortcuts & Activity Tracker
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = window.document.activeElement
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+        return
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setCommandPaletteOpen((prev) => !prev)
@@ -126,6 +148,7 @@ export const App: React.FC = () => {
     setWorkspacePath(wsPath)
     await refreshFiles()
     await loadTasks()
+    addLog('success', `Załadowano przestrzeń roboczą: ${wsPath}`)
 
     // Default open canvas
     const sampleCanvasPath = 'canvases/Rozbiory_Polski.canvas.json'
@@ -161,8 +184,6 @@ export const App: React.FC = () => {
   }
 
   const handleOpenFile = async (file: FileItem) => {
-    const isCanvas = file.name.includes('.canvas.')
-    const fileType = isCanvas ? 'canvas' : 'note'
     const tabId = `tab_${file.relativePath.replace(/[^a-zA-Z0-9]/g, '_')}`
 
     const existing = openTabs.find((t) => t.path === file.relativePath)
@@ -170,23 +191,21 @@ export const App: React.FC = () => {
       const newTab: OpenTab = {
         id: tabId,
         path: file.relativePath,
-        title: file.name.replace(/\.(md|canvas\.json|json)$/, ''),
-        type: fileType
+        title: file.name.replace(/\.(canvas\.json|json|md)$/, ''),
+        type: 'canvas'
       }
       setOpenTabs((prev) => [...prev, newTab])
     }
 
     setActiveTabId(existing ? existing.id : tabId)
     setActivePath(file.relativePath)
-    setActiveType(fileType)
-    setActivityMode(fileType === 'canvas' ? 'canvas' : 'notes')
+    setActiveType('canvas')
 
     try {
       const res = await window.electronAPI.invoke(IpcChannel.FILE_READ, { relativePath: file.relativePath })
-      if (isCanvas && res.content) {
+      if (res.content) {
         setCanvasDoc(JSON.parse(res.content))
-      } else {
-        setNoteContent(res.content || '')
+        addLog('info', `Otwarto tablicę: ${file.name}`)
       }
     } catch (err) {
       console.error('Failed to read file:', err)
@@ -202,72 +221,34 @@ export const App: React.FC = () => {
       setActiveTabId(next.id)
       setActivePath(next.path)
       setActiveType(next.type)
-      setActivityMode(next.type === 'canvas' ? 'canvas' : 'notes')
     }
   }
 
-  // Top 3 Activity Bar Handlers
-  const handleSelectCanvasMode = () => {
-    setActivityMode('canvas')
-    const canvasTab = openTabs.find((t) => t.type === 'canvas')
-    if (canvasTab) {
-      setActiveTabId(canvasTab.id)
-      setActivePath(canvasTab.path)
-      setActiveType('canvas')
-    } else {
-      // Find first canvas in file tree
-      const firstCanvas = findFirstFileByType(fileTree, '.canvas.json')
-      if (firstCanvas) handleOpenFile(firstCanvas)
-      else setActiveType('canvas')
+  // Sidebar Resize Handler
+  const handleSidebarMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizingSidebar(true)
+
+    const startX = e.clientX
+    const startWidth = sidebarWidth
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX
+      const newWidth = Math.max(180, Math.min(420, startWidth + deltaX))
+      setSidebarWidth(newWidth)
     }
-  }
 
-  const handleSelectNotesMode = () => {
-    setActivityMode('notes')
-    const noteTab = openTabs.find((t) => t.type === 'note')
-    if (noteTab) {
-      setActiveTabId(noteTab.id)
-      setActivePath(noteTab.path)
-      setActiveType('note')
-    } else {
-      const firstNote = findFirstFileByType(fileTree, '.md')
-      if (firstNote) handleOpenFile(firstNote)
-      else setActiveType('note')
+    const onMouseUp = () => {
+      setIsResizingSidebar(false)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
     }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
   }
 
-  const handleSelectGraphMode = () => {
-    setActivityMode('graph')
-    setActiveType('graph')
-  }
-
-  const findFirstFileByType = (items: FileItem[], extMatch: string): FileItem | null => {
-    for (const it of items) {
-      if (it.type === 'file' && it.name.includes(extMatch)) return it
-      if (it.children) {
-        const found = findFirstFileByType(it.children, extMatch)
-        if (found) return found
-      }
-    }
-    return null
-  }
-
-  // File CRUD operations
-  const handleNewNote = async (folderPath = 'notes') => {
-    const title = prompt('Podaj tytuł nowej notatki:', 'Nowa Notatka')
-    if (!title) return
-    const filename = `${title.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_')}.md`
-    const relativePath = `${folderPath}/${filename}`
-
-    await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
-      relativePath,
-      content: `# ${title}\n\nZacznij pisać tutaj...`,
-      createBackup: true
-    })
-    await refreshFiles()
-    handleOpenFile({ name: filename, relativePath, type: 'file', updatedAt: Date.now() })
-  }
-
+  // File & Folder CRUD operations
   const handleNewCanvas = async (folderPath = 'canvases') => {
     const title = prompt('Podaj nazwę nowej tablicy:', 'Nowa Tablica')
     if (!title) return
@@ -289,20 +270,44 @@ export const App: React.FC = () => {
       createBackup: true
     })
     await refreshFiles()
+    addLog('success', `Utworzono nową tablicę: ${relativePath}`)
     handleOpenFile({ name: filename, relativePath, type: 'file', updatedAt: Date.now() })
   }
 
-  const handleDeleteFile = async (relativePath: string) => {
+  const handleCreateFolder = async (parentPath = 'canvases') => {
+    const folderName = prompt('Podaj nazwę nowego folderu:', 'Nowy Folder')
+    if (!folderName) return
+    const cleanName = folderName.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_')
+    const relativePath = `${parentPath}/${cleanName}`
+
+    await window.electronAPI.invoke(IpcChannel.FILE_CREATE_FOLDER, { relativePath })
+    await refreshFiles()
+    addLog('success', `Utworzono folder: ${relativePath}`)
+  }
+
+  const handleRenamePath = async (oldPath: string, newName: string) => {
+    try {
+      const res = await window.electronAPI.invoke(IpcChannel.FILE_RENAME, { oldPath, newName })
+      if (res.success && res.newPath) {
+        addLog('info', `Zmieniono nazwę ${oldPath} -> ${res.newPath}`)
+        await refreshFiles()
+      }
+    } catch (err) {
+      console.error('Rename failed:', err)
+    }
+  }
+
+  const handleDeletePath = async (relativePath: string) => {
     try {
       await window.electronAPI.invoke(IpcChannel.FILE_DELETE, { relativePath })
-      // Remove from tabs if open
       setOpenTabs((prev) => prev.filter((t) => t.path !== relativePath))
       if (activePath === relativePath) {
         setActivePath(null)
       }
       await refreshFiles()
+      addLog('warn', `Usunięto fizycznie z dysku: ${relativePath}`)
     } catch (err) {
-      console.error('Delete file failed:', err)
+      console.error('Delete failed:', err)
     }
   }
 
@@ -311,6 +316,7 @@ export const App: React.FC = () => {
     sessionManagerRef.current.startSession(plannedMins, selectedTaskIds)
     syncSessionState()
     setKickoffOpen(false)
+    addLog('info', `Rozpoczęto sesję skupienia na ${plannedMins} minut.`)
   }
 
   const handleCommitSession = async (evalScore: number) => {
@@ -342,21 +348,25 @@ export const App: React.FC = () => {
       })
       await window.electronAPI.invoke(IpcChannel.RECOVERY_CLEAR_SNAPSHOT, undefined)
       await loadTasks()
+      addLog('success', `Zapisano sesję! Ocena zrozumienia: ${evalScore.toFixed(1)}/5.0.`)
     } catch (err) {
       console.error('Failed to save session history:', err)
     }
   }
 
   const handleToggleTaskComplete = async (taskId: string) => {
+    const current = tasks.find((t) => t.task_id === taskId)
+    const newStatus = current?.status === 'COMPLETED' ? 'BACKLOG' : 'COMPLETED'
     sessionManagerRef.current.registerTaskCompleted(taskId)
     syncSessionState()
     try {
       await window.electronAPI.invoke(IpcChannel.DB_UPDATE_TASK, {
         taskId,
-        status: 'COMPLETED',
-        completedAt: Date.now()
+        status: newStatus,
+        completedAt: newStatus === 'COMPLETED' ? Date.now() : null
       })
       await loadTasks()
+      addLog('info', `Zadanie ${current?.title}: ${newStatus === 'COMPLETED' ? 'Ukończono' : 'Przywrócono'}`)
     } catch (err) {
       console.error('Task update failed:', err)
     }
@@ -365,6 +375,8 @@ export const App: React.FC = () => {
   // CLI Command Execution
   const handleExecuteCommand = async (cmd: ParsedCommand) => {
     const commandName = cmd.command.toLowerCase()
+    addLog('command', `Wykonano: #${commandName} ${cmd.primaryArgument || ''}`)
+
     if (commandName === 'links' || commandName === 'asset') {
       setDrawerSearchQuery(cmd.primaryArgument || '')
       setDrawerOpen(true)
@@ -373,7 +385,9 @@ export const App: React.FC = () => {
     } else if (commandName === 'stats') {
       setStatsHudOpen((p) => !p)
     } else if (commandName === 'graph') {
-      handleSelectGraphMode()
+      setActiveType('graph')
+    } else if (commandName === 'tasks' || commandName === 'todo_view') {
+      setActiveType('tasks')
     } else if (commandName === 'session') {
       const sub = cmd.primaryArgument?.toLowerCase()
       if (sub === 'pause') sessionManagerRef.current.pauseManual()
@@ -383,16 +397,6 @@ export const App: React.FC = () => {
         setEvaluationOpen(true)
       }
       syncSessionState()
-    } else if (commandName === 'note') {
-      const title = cmd.primaryArgument || 'Nowa Notatka'
-      const rel = `notes/${title.replace(/\s+/g, '_')}.md`
-      await window.electronAPI.invoke(IpcChannel.FILE_WRITE_ATOMIC, {
-        relativePath: rel,
-        content: `# ${title}\n\nWpisz treść notatki...`,
-        createBackup: true
-      })
-      await refreshFiles()
-      handleOpenFile({ name: `${title}.md`, relativePath: rel, type: 'file', updatedAt: Date.now() })
     } else if (commandName === 'canvas') {
       const title = cmd.primaryArgument || 'Nowa Tablica'
       const rel = `canvases/${title.replace(/\s+/g, '_')}.canvas.json`
@@ -421,6 +425,7 @@ export const App: React.FC = () => {
         topicId: cmd.flags.targetCanvas
       })
       await loadTasks()
+      addLog('success', `Dodano nowe zadanie: ${title} [${prio}]`)
     }
   }
 
@@ -457,13 +462,16 @@ export const App: React.FC = () => {
       {/* Main Work Container */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Far Left Activity Bar */}
-        <aside className="w-12 h-full bg-[#09090b] border-r border-[#27272a] flex flex-col items-center py-3 gap-2 z-20">
+        <aside className="w-12 h-full bg-[#09090b] border-r border-[#27272a] flex flex-col items-center py-3 gap-2 z-20 shrink-0">
           <button
-            onClick={handleSelectCanvasMode}
-            title="Tablice Whiteboard"
+            onClick={() => {
+              setActiveType('canvas')
+              setSidebarOpen(true)
+            }}
+            title="Tablice Canvas (Siatka)"
             className={`p-2.5 rounded-xl transition-all ${
-              activityMode === 'canvas' && activeType === 'canvas'
-                ? 'bg-[#27272a] text-[#38bdf8] shadow-md'
+              activeType === 'canvas'
+                ? 'bg-[#27272a] text-[#38bdf8] shadow-md ring-1 ring-[#38bdf8]/30'
                 : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
             }`}
           >
@@ -471,27 +479,27 @@ export const App: React.FC = () => {
           </button>
 
           <button
-            onClick={handleSelectNotesMode}
-            title="Notatki Markdown"
-            className={`p-2.5 rounded-xl transition-all ${
-              activityMode === 'notes' && activeType === 'note'
-                ? 'bg-[#27272a] text-[#38bdf8] shadow-md'
-                : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={handleSelectGraphMode}
-            title="Graf Wiedzy"
+            onClick={() => setActiveType('graph')}
+            title="Graf Wiedzy (Graph View)"
             className={`p-2.5 rounded-xl transition-all ${
               activeType === 'graph'
-                ? 'bg-[#27272a] text-[#38bdf8] shadow-md'
+                ? 'bg-[#27272a] text-[#a855f7] shadow-md ring-1 ring-[#a855f7]/30'
                 : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
             }`}
           >
             <Share2 className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => setActiveType('tasks')}
+            title="Zadania & Checklist (To-Do)"
+            className={`p-2.5 rounded-xl transition-all ${
+              activeType === 'tasks'
+                ? 'bg-[#27272a] text-[#10b981] shadow-md ring-1 ring-[#10b981]/30'
+                : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+            }`}
+          >
+            <CheckSquare className="w-4 h-4" />
           </button>
 
           <div className="w-6 h-px bg-[#27272a] my-1" />
@@ -513,37 +521,47 @@ export const App: React.FC = () => {
           </button>
         </aside>
 
-        {/* File Sidebar (collapsible) */}
+        {/* File Sidebar (collapsible & resizable) */}
         {sidebarOpen && (
-          <FileSidebar
-            workspacePath={workspacePath}
-            fileTree={fileTree}
-            activePath={activePath}
-            onOpenFile={handleOpenFile}
-            onOpenGraph={handleSelectGraphMode}
-            onOpenReview={() => setReviewRunnerOpen(true)}
-            onOpenAnalytics={() => setAnalyticsModalOpen(true)}
-            onRefreshFiles={refreshFiles}
-            onNewNote={(folder) => handleNewNote(folder)}
-            onNewCanvas={(folder) => handleNewCanvas(folder)}
-            onDeleteFile={handleDeleteFile}
-          />
+          <div style={{ width: `${sidebarWidth}px` }} className="h-full relative shrink-0">
+            <FileSidebar
+              workspacePath={workspacePath}
+              fileTree={fileTree}
+              activePath={activePath}
+              onOpenFile={handleOpenFile}
+              onOpenGraph={() => setActiveType('graph')}
+              onOpenTasks={() => setActiveType('tasks')}
+              onOpenReview={() => setReviewRunnerOpen(true)}
+              onOpenAnalytics={() => setAnalyticsModalOpen(true)}
+              onRefreshFiles={refreshFiles}
+              onNewCanvas={(folder) => handleNewCanvas(folder)}
+              onCreateFolder={(parent) => handleCreateFolder(parent)}
+              onDeletePath={handleDeletePath}
+              onRenamePath={handleRenamePath}
+            />
+
+            {/* Sidebar Resizer Splitter */}
+            <div
+              onMouseDown={handleSidebarMouseDown}
+              className="w-1.5 h-full bg-transparent hover:bg-[#38bdf8]/40 cursor-ew-resize absolute top-0 right-0 z-30 transition-colors"
+              title="Przeciągnij, aby zmienić szerokość"
+            />
+          </div>
         )}
 
         {/* Center Main Work Area */}
         <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0c0c0e] relative">
           {/* Tabs Bar */}
-          <div className="h-9 bg-[#111114] border-b border-[#27272a] flex items-center px-1.5 overflow-x-auto no-scrollbar gap-1 text-xs">
+          <div className="h-9 bg-[#111114] border-b border-[#27272a] flex items-center px-1.5 overflow-x-auto no-scrollbar gap-1 text-xs shrink-0">
             {openTabs.map((tab) => {
-              const isActive = activePath === tab.path
+              const isActive = activePath === tab.path && activeType === 'canvas'
               return (
                 <div
                   key={tab.id}
                   onClick={() => {
                     setActivePath(tab.path)
-                    setActiveType(tab.type)
+                    setActiveType('canvas')
                     setActiveTabId(tab.id)
-                    setActivityMode(tab.type === 'canvas' ? 'canvas' : 'notes')
                   }}
                   className={`h-7 px-3 rounded-lg flex items-center gap-2 cursor-pointer text-[11px] transition-all ${
                     isActive
@@ -551,12 +569,8 @@ export const App: React.FC = () => {
                       : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
                   }`}
                 >
-                  {tab.type === 'canvas' ? (
-                    <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7]" />
-                  ) : (
-                    <FileText className="w-3.5 h-3.5 text-[#38bdf8]" />
-                  )}
-                  <span className="truncate max-w-[130px]">{tab.title}</span>
+                  <LayoutGrid className="w-3.5 h-3.5 text-[#38bdf8]" />
+                  <span className="truncate max-w-[140px]">{tab.title}</span>
                   <button
                     onClick={(e) => handleCloseTab(e, tab.id)}
                     className="p-0.5 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#f4f4f5]"
@@ -566,11 +580,31 @@ export const App: React.FC = () => {
                 </div>
               )
             })}
+
+            {activeType === 'tasks' && (
+              <div className="h-7 px-3 rounded-lg flex items-center gap-2 text-[11px] bg-[#18181b] text-[#10b981] font-semibold border border-[#10b981]/40">
+                <CheckSquare className="w-3.5 h-3.5" />
+                <span>Zadania & Checklist</span>
+              </div>
+            )}
+
+            {activeType === 'graph' && (
+              <div className="h-7 px-3 rounded-lg flex items-center gap-2 text-[11px] bg-[#18181b] text-[#a855f7] font-semibold border border-[#a855f7]/40">
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Graf Wiedzy</span>
+              </div>
+            )}
           </div>
 
-          {/* Viewport Content */}
+          {/* Main Viewport Content Area */}
           <main className="flex-1 h-full overflow-hidden relative">
-            {activeType === 'graph' ? (
+            {activeType === 'tasks' ? (
+              <TaskManagementView
+                tasks={tasks}
+                onRefreshTasks={loadTasks}
+                onToggleComplete={handleToggleTaskComplete}
+              />
+            ) : activeType === 'graph' ? (
               <KnowledgeGraphViewport
                 sessionCreatedNodeIds={sessionCtx.createdNodeIds}
                 sessionCreatedEdgeIds={sessionCtx.createdEdgeIds}
@@ -595,23 +629,25 @@ export const App: React.FC = () => {
                   syncSessionState()
                 }}
                 onActivity={() => sessionManagerRef.current.registerActivity()}
-                onOpenNote={(notePath) => {
-                  handleOpenFile({ name: notePath.split('/').pop() || 'note.md', relativePath: notePath, type: 'file', updatedAt: Date.now() })
+                onOpenCanvas={(canvasPath) => {
+                  handleOpenFile({ name: canvasPath.split('/').pop() || 'canvas.json', relativePath: canvasPath, type: 'file', updatedAt: Date.now() })
                 }}
-              />
-            ) : activePath ? (
-              <MarkdownEditor
-                relativePath={activePath}
-                initialContent={noteContent}
-                onContentChanged={(newText) => setNoteContent(newText)}
-                onActivity={() => sessionManagerRef.current.registerActivity()}
               />
             ) : (
               <div className="h-full flex items-center justify-center text-[#71717a] text-xs">
-                Wybierz tablicę lub notatkę z eksploratora plików.
+                Wybierz tablicę z eksploratora plików lub utwórz nową.
               </div>
             )}
           </main>
+
+          {/* Bottom Solid Resizable Console & CLI */}
+          <BottomConsolePanel
+            height={consoleHeight}
+            onHeightChange={(h) => setConsoleHeight(h)}
+            onExecuteCommand={handleExecuteCommand}
+            logs={consoleLogs}
+            onClearLogs={() => setConsoleLogs([])}
+          />
         </div>
 
         {/* Right Asset Drawer */}
@@ -620,17 +656,10 @@ export const App: React.FC = () => {
           initialQuery={drawerSearchQuery}
           onClose={() => setDrawerOpen(false)}
           onOpenNote={(path) => {
-            handleOpenFile({ name: path.split('/').pop() || 'note.md', relativePath: path, type: 'file', updatedAt: Date.now() })
+            handleOpenFile({ name: path.split('/').pop() || 'canvas.json', relativePath: path, type: 'file', updatedAt: Date.now() })
           }}
         />
       </div>
-
-      {/* Bottom Status & Mini CLI Terminal Bar */}
-      <BottomStatusBar
-        activePath={activePath}
-        activeType={activeType}
-        onExecuteCommand={handleExecuteCommand}
-      />
 
       {/* Floating HUD Widget */}
       {statsHudOpen && (

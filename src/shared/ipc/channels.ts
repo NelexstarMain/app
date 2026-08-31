@@ -6,6 +6,8 @@ export enum IpcChannel {
   FILE_READ = 'file:read',
   FILE_WRITE_ATOMIC = 'file:write-atomic',
   FILE_DELETE = 'file:delete',
+  FILE_CREATE_FOLDER = 'file:create-folder',
+  FILE_RENAME = 'file:rename',
   FILE_LIST = 'file:list',
 
   // SQLite Database & FTS5
@@ -14,6 +16,7 @@ export enum IpcChannel {
   DB_GET_TASKS = 'db:get-tasks',
   DB_CREATE_TASK = 'db:create-task',
   DB_UPDATE_TASK = 'db:update-task',
+  DB_DELETE_TASK = 'db:delete-task',
   DB_GET_SRS_DUE = 'db:get-srs-due',
   DB_RECORD_SRS_REVIEW = 'db:record-srs-review',
   DB_SAVE_SESSION_HISTORY = 'db:save-session-history',

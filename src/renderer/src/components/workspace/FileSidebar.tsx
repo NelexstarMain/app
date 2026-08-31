@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import {
-  FileText,
   LayoutGrid,
   Share2,
   BookOpen,
@@ -13,7 +12,8 @@ import {
   Plus,
   Trash2,
   Edit3,
-  MoreVertical
+  MoreVertical,
+  CheckSquare
 } from 'lucide-react'
 import { FileItem } from '../../../../shared/types/workspace'
 import { IpcChannel } from '../../../../shared/ipc/channels'
@@ -24,13 +24,14 @@ interface Props {
   activePath: string | null
   onOpenFile: (file: FileItem) => void
   onOpenGraph: () => void
+  onOpenTasks: () => void
   onOpenReview: () => void
   onOpenAnalytics: () => void
   onRefreshFiles: () => void
-  onNewNote: (folderPath?: string) => void
   onNewCanvas: (folderPath?: string) => void
-  onDeleteFile?: (relativePath: string) => void
-  onRenameFile?: (oldPath: string, newName: string) => void
+  onCreateFolder?: (parentPath?: string) => void
+  onDeletePath?: (relativePath: string) => void
+  onRenamePath?: (oldPath: string, newName: string) => void
 }
 
 export const FileSidebar: React.FC<Props> = ({
@@ -39,18 +40,18 @@ export const FileSidebar: React.FC<Props> = ({
   activePath,
   onOpenFile,
   onOpenGraph,
+  onOpenTasks,
   onOpenReview,
   onOpenAnalytics,
   onRefreshFiles,
-  onNewNote,
   onNewCanvas,
-  onDeleteFile,
-  onRenameFile
+  onCreateFolder,
+  onDeletePath,
+  onRenamePath
 }) => {
   const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({
-    notes: true,
     canvases: true,
-    'notes/Historia': true
+    'canvases/Historia': true
   })
   const [isReindexing, setIsReindexing] = useState(false)
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
@@ -110,13 +111,27 @@ export const FileSidebar: React.FC<Props> = ({
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    onNewNote(item.relativePath)
+                    onNewCanvas(item.relativePath)
                   }}
-                  title="Nowa notatka w tym folderze"
+                  title="Nowa tablica w tym folderze"
                   className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#f4f4f5]"
                 >
                   <Plus className="w-3 h-3" />
                 </button>
+                {onDeletePath && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (confirm(`Czy na pewno usunąć folder ${item.name} wraz z zawartością?`)) {
+                        onDeletePath(item.relativePath)
+                      }
+                    }}
+                    title="Usuń folder"
+                    className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#fb7185]"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -127,8 +142,6 @@ export const FileSidebar: React.FC<Props> = ({
         </div>
       )
     }
-
-    const isCanvas = item.name.includes('.canvas.')
 
     return (
       <div
@@ -146,39 +159,54 @@ export const FileSidebar: React.FC<Props> = ({
           onClick={() => onOpenFile(item)}
           className="flex items-center gap-2 flex-1 text-left truncate"
         >
-          {isCanvas ? (
-            <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7] shrink-0" />
-          ) : (
-            <FileText className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
-          )}
-          <span className="truncate text-[11px]">{item.name.replace(/\.(md|canvas\.json|json)$/, '')}</span>
+          <LayoutGrid className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+          <span className="truncate text-[11px]">{item.name.replace(/\.(canvas\.json|json|md)$/, '')}</span>
         </button>
 
-        {hoveredItem === item.relativePath && onDeleteFile && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              if (confirm(`Czy na pewno usunąć plik ${item.name}?`)) {
-                onDeleteFile(item.relativePath)
-              }
-            }}
-            title="Usuń plik"
-            className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#fb7185] opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
+        {hoveredItem === item.relativePath && (
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {onRenamePath && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const newName = prompt('Nowa nazwa pliku:', item.name)
+                  if (newName && newName !== item.name) {
+                    onRenamePath(item.relativePath, newName)
+                  }
+                }}
+                title="Zmień nazwę"
+                className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#f4f4f5]"
+              >
+                <Edit3 className="w-3 h-3" />
+              </button>
+            )}
+            {onDeletePath && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (confirm(`Czy na pewno usunąć plik ${item.name}?`)) {
+                    onDeletePath(item.relativePath)
+                  }
+                }}
+                title="Usuń plik"
+                className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#fb7185]"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         )}
       </div>
     )
   }
 
   return (
-    <div className="w-60 h-full bg-[#09090b] border-r border-[#27272a] flex flex-col select-none text-xs">
+    <div className="h-full bg-[#09090b] border-r border-[#27272a] flex flex-col select-none text-xs">
       {/* Workspace Header */}
       <div className="h-10 px-3.5 border-b border-[#27272a] flex items-center justify-between text-[#f4f4f5]">
         <div className="flex items-center gap-2 truncate">
           <div className="w-5 h-5 rounded-md bg-[#18181b] border border-[#27272a] flex items-center justify-center text-[10px] font-bold text-[#38bdf8]">
-            K
+            C
           </div>
           <span className="font-semibold text-xs truncate" title={workspacePath}>
             {cleanWorkspaceName(workspacePath)}
@@ -187,19 +215,21 @@ export const FileSidebar: React.FC<Props> = ({
 
         <div className="flex items-center gap-0.5">
           <button
-            onClick={() => onNewNote()}
-            title="Nowa notatka (.md)"
-            className="p-1 rounded-md text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors"
-          >
-            <FileText className="w-3.5 h-3.5 text-[#38bdf8]" />
-          </button>
-          <button
             onClick={() => onNewCanvas()}
             title="Nowa tablica (.canvas.json)"
             className="p-1 rounded-md text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors"
           >
-            <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7]" />
+            <Plus className="w-4 h-4 text-[#38bdf8]" />
           </button>
+          {onCreateFolder && (
+            <button
+              onClick={() => onCreateFolder()}
+              title="Nowy folder"
+              className="p-1 rounded-md text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors"
+            >
+              <FolderPlus className="w-4 h-4 text-[#f59e0b]" />
+            </button>
+          )}
           <button
             onClick={handleColdReindex}
             title="Odśwież i reindeksuj (Cold Reindex)"
@@ -213,10 +243,17 @@ export const FileSidebar: React.FC<Props> = ({
       {/* Quick Navigation Modes */}
       <div className="p-2 space-y-1 border-b border-[#27272a]">
         <button
+          onClick={onOpenTasks}
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
+        >
+          <CheckSquare className="w-4 h-4 text-[#38bdf8]" />
+          <span>Zadania & Checklist</span>
+        </button>
+        <button
           onClick={onOpenGraph}
           className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
         >
-          <Share2 className="w-4 h-4 text-[#38bdf8]" />
+          <Share2 className="w-4 h-4 text-[#a855f7]" />
           <span>Graf Wiedzy</span>
         </button>
         <button
@@ -239,14 +276,14 @@ export const FileSidebar: React.FC<Props> = ({
       <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
         <div className="flex items-center justify-between px-2 py-1 mb-1">
           <span className="text-[10px] font-bold uppercase tracking-wider text-[#52525b]">
-            Eksplorator Plików
+            Tablice & Foldery
           </span>
           <button
-            onClick={() => onNewNote()}
+            onClick={() => onNewCanvas()}
             className="text-[10px] text-[#38bdf8] hover:underline flex items-center gap-0.5"
           >
             <Plus className="w-3 h-3" />
-            <span>Dodaj</span>
+            <span>Nowa</span>
           </button>
         </div>
         {fileTree.map((item) => renderItem(item))}
@@ -262,7 +299,7 @@ export const FileSidebar: React.FC<Props> = ({
           <RefreshCw className={`w-3 h-3 ${isReindexing ? 'animate-spin text-[#10b981]' : ''}`} />
           <span>{isReindexing ? 'Indeksowanie...' : 'Cold Reindex'}</span>
         </button>
-        <span className="font-mono text-[#52525b]">SQLite FTS5</span>
+        <span className="font-mono text-[#52525b]">FTS5 Index</span>
       </div>
     </div>
   )

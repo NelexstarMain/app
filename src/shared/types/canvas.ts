@@ -101,4 +101,5 @@ export interface CanvasDocument {
   viewport: CanvasViewport
   nodes: CanvasNode[]
   edges: CanvasEdge[]
+  relatedCanvasIds?: string[]
 }

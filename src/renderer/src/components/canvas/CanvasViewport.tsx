@@ -13,7 +13,11 @@ import {
   Trash2,
   Link2,
   FileText,
-  Palette
+  Palette,
+  ChevronUp,
+  ChevronDown,
+  Layers,
+  Sparkles
 } from 'lucide-react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
 
@@ -24,6 +28,7 @@ interface Props {
   onActivity: () => void
   onNodeAdded?: (nodeId: string) => void
   onOpenNote?: (notePath: string) => void
+  onOpenCanvas?: (canvasPath: string) => void
 }
 
 export const CanvasViewport: React.FC<Props> = ({
@@ -32,14 +37,15 @@ export const CanvasViewport: React.FC<Props> = ({
   onDocumentChanged,
   onActivity,
   onNodeAdded,
-  onOpenNote
+  onOpenNote,
+  onOpenCanvas
 }) => {
   const [doc, setDoc] = useState<CanvasDocument>(document)
   const [activeTool, setActiveTool] = useState<WhiteboardTool>('select')
   const [penColor, setPenColor] = useState('#f4f4f5')
   const [penWidth, setPenWidth] = useState(3)
 
-  // Viewport pan & zoom
+  // Infinite Viewport Pan & Zoom
   const [pan, setPan] = useState({ x: document.viewport.x || 0, y: document.viewport.y || 0 })
   const [zoom, setZoom] = useState(document.viewport.zoom || 1.0)
   const [isPanning, setIsPanning] = useState(false)
@@ -59,6 +65,9 @@ export const CanvasViewport: React.FC<Props> = ({
   const [connectingFrom, setConnectingFrom] = useState<{ nodeId: string; side: EdgeSide; isSoft?: boolean } | null>(null)
   const [connectingMousePos, setConnectingMousePos] = useState<{ x: number; y: number } | null>(null)
 
+  // Related Canvases Drawer
+  const [relatedDrawerOpen, setRelatedDrawerOpen] = useState(false)
+
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -73,6 +82,11 @@ export const CanvasViewport: React.FC<Props> = ({
   // Paste Support (Images & Text)
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
+      const activeEl = window.document.activeElement
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+        return // Let input handle regular text pasting
+      }
+
       const items = e.clipboardData?.items
       if (!items) return
 
@@ -123,6 +137,10 @@ export const CanvasViewport: React.FC<Props> = ({
   // Keyboard Shortcuts (Delete, V, H, P, E, T, S, R, O, A, L, Q)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = window.document.activeElement
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+        return // NEVER intercept keyboard when typing in inputs/textareas
+      }
       if (editingNodeId) return
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -202,8 +220,8 @@ export const CanvasViewport: React.FC<Props> = ({
           width: 280,
           height: 180,
           data: {
-            title: 'Notatka Markdown',
-            markdown: 'Napisz treść... [[Notatka]], [[@entity_id|Obiekt]], #tag'
+            title: 'Notatka',
+            markdown: 'Zacznij pisać treść notatki...'
           }
         }
         notifyChange({ ...doc, nodes: [...doc.nodes, newNode] })
@@ -266,7 +284,7 @@ export const CanvasViewport: React.FC<Props> = ({
           x: Math.round(world.x),
           y: Math.round(world.y),
           width: 280,
-          height: 190,
+          height: 200,
           data: {
             srs_card_id: `q_${Date.now()}`,
             question: 'Wpisz pytanie sprawdzające...',
@@ -363,7 +381,7 @@ export const CanvasViewport: React.FC<Props> = ({
     e.preventDefault()
     onActivity()
     const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92
-    const newZoom = Math.max(0.2, Math.min(2.5, zoom * zoomFactor))
+    const newZoom = Math.max(0.15, Math.min(3.0, zoom * zoomFactor))
     setZoom(newZoom)
   }
 
@@ -429,7 +447,7 @@ export const CanvasViewport: React.FC<Props> = ({
         toSide: targetSide,
         label: isSoft ? 'POWIĄZANIE' : 'RELACJA',
         color: isSoft ? '#71717a' : '#38bdf8',
-        style: isSoft ? 'dotted' : 'solid'
+        style: isSoft ? 'soft_link' : 'solid'
       }
       notifyChange({ ...doc, edges: [...doc.edges, newEdge] })
     }
@@ -509,14 +527,14 @@ export const CanvasViewport: React.FC<Props> = ({
       {/* Top Left Navigation Indicator */}
       <div className="absolute top-4 left-4 z-30 flex items-center gap-1.5 p-1 rounded-xl bg-[#18181b]/90 border border-[#27272a] shadow-xl text-xs backdrop-blur-md">
         <button
-          onClick={() => setZoom((z) => Math.min(2.5, z + 0.15))}
+          onClick={() => setZoom((z) => Math.min(3.0, z + 0.15))}
           className="p-1 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]"
         >
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
         <span className="font-mono text-[11px] text-[#a1a1aa] w-9 text-center font-medium">{Math.round(zoom * 100)}%</span>
         <button
-          onClick={() => setZoom((z) => Math.max(0.2, z - 0.15))}
+          onClick={() => setZoom((z) => Math.max(0.15, z - 0.15))}
           className="p-1 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]"
         >
           <ZoomOut className="w-3.5 h-3.5" />
@@ -528,7 +546,7 @@ export const CanvasViewport: React.FC<Props> = ({
             setZoom(1.0)
           }}
           className="p-1 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]"
-          title="Resetuj widok"
+          title="Resetuj widok (0,0)"
         >
           <Maximize2 className="w-3.5 h-3.5" />
         </button>
@@ -689,7 +707,11 @@ export const CanvasViewport: React.FC<Props> = ({
                 {node.type === 'text_card' && (
                   <div className="h-full w-full p-4 rounded-2xl bg-[#18181b] border border-[#27272a] flex flex-col justify-between text-xs">
                     {editingNodeId === node.id ? (
-                      <div className="flex flex-col h-full gap-2">
+                      <div
+                        onKeyDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="flex flex-col h-full gap-2"
+                      >
                         <input
                           type="text"
                           value={node.data.title || ''}
@@ -706,10 +728,17 @@ export const CanvasViewport: React.FC<Props> = ({
                           value={node.data.markdown || ''}
                           onChange={(e) => {
                             const updated = doc.nodes.map((n) =>
-                              n.id === node.id ? { ...n, data: { ...n.data, markdown: e.target.value } } : n
+                              n.id === node.id
+                                ? {
+                                    ...n,
+                                    height: Math.max(160, e.target.scrollHeight + 50),
+                                    data: { ...n.data, markdown: e.target.value }
+                                  }
+                                : n
                             )
                             setDoc({ ...doc, nodes: updated })
                           }}
+                          placeholder="Treść notatki..."
                           className="flex-1 bg-transparent text-[#f4f4f5] resize-none focus:outline-none font-mono text-[11px] min-h-[90px]"
                         />
                         <button
@@ -745,12 +774,18 @@ export const CanvasViewport: React.FC<Props> = ({
                     )}`}
                   >
                     {editingNodeId === node.id ? (
-                      <div className="flex flex-col h-full gap-2">
+                      <div
+                        onKeyDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="flex flex-col h-full gap-2"
+                      >
                         <textarea
                           value={node.data.text || ''}
                           onChange={(e) => {
                             const updated = doc.nodes.map((n) =>
-                              n.id === node.id ? { ...n, data: { ...n.data, text: e.target.value } } : n
+                              n.id === node.id
+                                ? { ...n, height: Math.max(180, e.target.scrollHeight + 60), data: { ...n.data, text: e.target.value } }
+                                : n
                             )
                             setDoc({ ...doc, nodes: updated })
                           }}
@@ -769,7 +804,7 @@ export const CanvasViewport: React.FC<Props> = ({
                                   )
                                   notifyChange({ ...doc, nodes: updated })
                                 }}
-                                className={`w-3 h-3 rounded-full border border-black/30 ${
+                                className={`w-3.5 h-3.5 rounded-full border border-black/30 ${
                                   c === 'yellow' ? 'bg-yellow-400' : c === 'blue' ? 'bg-blue-400' : c === 'green' ? 'bg-green-400' : c === 'purple' ? 'bg-purple-400' : 'bg-rose-400'
                                 }`}
                               />
@@ -780,7 +815,7 @@ export const CanvasViewport: React.FC<Props> = ({
                               setEditingNodeId(null)
                               notifyChange(doc)
                             }}
-                            className="px-2 py-0.5 rounded bg-black/30 hover:bg-black/50 text-[10px] font-semibold"
+                            className="px-2.5 py-0.5 rounded bg-black/30 hover:bg-black/50 text-[10px] font-semibold"
                           >
                             Zapisz
                           </button>
@@ -845,12 +880,14 @@ export const CanvasViewport: React.FC<Props> = ({
                           )
                           setDoc({ ...doc, nodes: updated })
                         }}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                         onBlur={() => {
                           setEditingNodeId(null)
                           notifyChange(doc)
                         }}
                         autoFocus
-                        placeholder="Wpisz treść..."
+                        placeholder="Wpisz treść w kształcie..."
                         className="w-full h-full bg-transparent text-[#f4f4f5] text-center resize-none focus:outline-none text-xs font-semibold"
                       />
                     ) : (
@@ -863,7 +900,11 @@ export const CanvasViewport: React.FC<Props> = ({
 
                 {/* 5. Live Editable Active Recall Card */}
                 {node.type === 'quiz_card' && (
-                  <div className="h-full w-full p-4 rounded-2xl bg-[#18181b] border border-[#f59e0b]/40 flex flex-col justify-between shadow-xl text-xs">
+                  <div
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="h-full w-full p-4 rounded-2xl bg-[#18181b] border border-[#f59e0b]/40 flex flex-col justify-between shadow-xl text-xs"
+                  >
                     <div>
                       <div className="text-[10px] text-[#f59e0b] font-bold uppercase tracking-wider mb-2 flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
@@ -872,7 +913,7 @@ export const CanvasViewport: React.FC<Props> = ({
                         </div>
                         <button
                           onClick={() => setEditingNodeId(editingNodeId === node.id ? null : node.id)}
-                          className="text-[#71717a] hover:text-[#f4f4f5]"
+                          className="text-[#71717a] hover:text-[#f4f4f5] p-1 rounded hover:bg-[#27272a]"
                         >
                           <Edit2 className="w-3 h-3" />
                         </button>
@@ -889,8 +930,9 @@ export const CanvasViewport: React.FC<Props> = ({
                               )
                               setDoc({ ...doc, nodes: updated })
                             }}
-                            placeholder="Pytanie..."
-                            className="w-full bg-[#27272a] border border-[#3f3f46] rounded-lg px-2 py-1 text-xs text-[#f4f4f5] focus:outline-none focus:border-[#f59e0b]"
+                            onKeyDown={(e) => e.stopPropagation()}
+                            placeholder="Wpisz pytanie..."
+                            className="w-full bg-[#27272a] border border-[#3f3f46] rounded-lg px-2.5 py-1 text-xs text-[#f4f4f5] focus:outline-none focus:border-[#f59e0b]"
                           />
                           <input
                             type="text"
@@ -901,15 +943,16 @@ export const CanvasViewport: React.FC<Props> = ({
                               )
                               setDoc({ ...doc, nodes: updated })
                             }}
-                            placeholder="Odpowiedź..."
-                            className="w-full bg-[#27272a] border border-[#3f3f46] rounded-lg px-2 py-1 text-xs text-[#10b981] font-mono focus:outline-none focus:border-[#10b981]"
+                            onKeyDown={(e) => e.stopPropagation()}
+                            placeholder="Wpisz odpowiedź..."
+                            className="w-full bg-[#27272a] border border-[#3f3f46] rounded-lg px-2.5 py-1 text-xs text-[#10b981] font-mono focus:outline-none focus:border-[#10b981]"
                           />
                           <button
                             onClick={() => {
                               setEditingNodeId(null)
                               notifyChange(doc)
                             }}
-                            className="w-full py-1 rounded bg-[#27272a] hover:bg-[#3f3f46] text-[10px] text-[#f4f4f5]"
+                            className="w-full py-1 rounded bg-[#27272a] hover:bg-[#3f3f46] text-[10px] font-bold text-[#f4f4f5]"
                           >
                             Zapisz fiszkę
                           </button>
@@ -936,7 +979,7 @@ export const CanvasViewport: React.FC<Props> = ({
                                 )
                                 notifyChange({ ...doc, nodes: updated })
                               }}
-                              className="text-[#71717a] hover:text-[#f4f4f5] text-[10px]"
+                              className="text-[#71717a] hover:text-[#f4f4f5] text-[10px] p-0.5 rounded hover:bg-[#27272a]"
                             >
                               Ukryj
                             </button>
@@ -975,6 +1018,37 @@ export const CanvasViewport: React.FC<Props> = ({
         onChangePenWidth={(w) => setPenWidth(w)}
         onAddImage={handleAddImage}
       />
+
+      {/* Collapsible Bottom "Powiązane Tablice" Section */}
+      <div className="absolute bottom-20 left-4 z-30 flex flex-col items-start select-none">
+        <button
+          onClick={() => setRelatedDrawerOpen(!relatedDrawerOpen)}
+          className="px-2.5 py-1 rounded-lg bg-[#18181b]/90 hover:bg-[#27272a] border border-[#27272a] text-[11px] text-[#a1a1aa] hover:text-[#f4f4f5] flex items-center gap-1.5 shadow-lg backdrop-blur-md"
+        >
+          <Layers className="w-3.5 h-3.5 text-[#38bdf8]" />
+          <span>Powiązane tablice</span>
+          {relatedDrawerOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+        </button>
+
+        {relatedDrawerOpen && (
+          <div className="mt-1.5 p-2 rounded-xl bg-[#141519]/95 border border-[#27272a] shadow-2xl backdrop-blur-md flex flex-wrap gap-1.5 max-w-xs">
+            {doc.edges
+              .filter((e) => e.style === 'soft_link')
+              .map((edge) => (
+                <div
+                  key={edge.id}
+                  className="px-2 py-0.5 rounded-lg bg-[#18181b] border border-[#3f3f46] text-[10px] text-[#38bdf8] flex items-center gap-1 font-mono"
+                >
+                  <Sparkles className="w-2.5 h-2.5" />
+                  <span>{edge.label || 'Powiązanie'}</span>
+                </div>
+              ))}
+            {doc.edges.filter((e) => e.style === 'soft_link').length === 0 && (
+              <span className="text-[10px] text-[#71717a] italic p-1">Brak bezpośrednich subtelnych linków. Użyj narzędzia [L]!</span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -408,6 +408,14 @@ export class DatabaseService {
     return true
   }
 
+  public deleteTask(taskId: string): boolean {
+    const deleted = this.tasks.delete(taskId)
+    if (deleted) {
+      this.persistToDisk()
+    }
+    return deleted
+  }
+
   // --- Spaced Repetition (FSRS) ---
   public createSrsCard(card: SrsCardRecord): void {
     this.srsCards.set(card.card_id, card)
