@@ -252,10 +252,10 @@ export const MarkdownEditor: React.FC<Props> = ({
                 <span
                   key={pIdx}
                   onClick={() => onNavigatePath && onNavigatePath(targetNote)}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#38bdf8]/15 text-[#38bdf8] border border-[#38bdf8]/35 text-[11px] font-semibold cursor-pointer hover:border-[#38bdf8] hover:bg-[#38bdf8]/25 transition-all shadow-sm"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#a855f7]/15 text-[#c084fc] border border-[#a855f7]/40 text-[11px] font-semibold cursor-pointer hover:border-[#a855f7] hover:bg-[#a855f7]/25 transition-all shadow-sm"
                   title={`Przejdź do: ${targetNote}`}
                 >
-                  <FileText className="w-3 h-3 text-[#38bdf8]" />
+                  <FileText className="w-3 h-3 text-[#c084fc]" />
                   <span>{label || targetNote}</span>
                 </span>
               )
@@ -267,7 +267,7 @@ export const MarkdownEditor: React.FC<Props> = ({
                 <span
                   key={pIdx}
                   onClick={() => onNavigatePath && onNavigatePath(cleanMention)}
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/35 text-[11px] font-medium cursor-pointer hover:bg-[#10b981]/25 transition-all"
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#818cf8]/15 text-[#818cf8] border border-[#818cf8]/40 text-[11px] font-medium cursor-pointer hover:bg-[#818cf8]/25 transition-all"
                   title={`Wzmianka: ${cleanMention}`}
                 >
                   <AtSign className="w-2.5 h-2.5" />
@@ -280,7 +280,7 @@ export const MarkdownEditor: React.FC<Props> = ({
               return (
                 <span
                   key={pIdx}
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#18181b] text-[#f59e0b] text-[10px] font-mono border border-[#f59e0b]/30 font-medium"
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#16142e] text-[#c084fc] text-[10px] font-mono border border-[#a855f7]/30 font-medium"
                 >
                   <Tag className="w-2.5 h-2.5" />
                   <span>{part.slice(1)}</span>
@@ -299,43 +299,45 @@ export const MarkdownEditor: React.FC<Props> = ({
     <div
       onDragOver={handleDragOver}
       onDrop={handleDrop}
-      className="h-full flex flex-col bg-[#09090b] select-text"
+      className="h-full flex flex-col bg-[#070913] select-text"
     >
       {/* Top Breadcrumbs & View Switcher Bar */}
-      <div className="h-9 bg-[#111114] border-b border-[#27272a] flex items-center justify-between px-4 select-none text-xs">
+      <div className="h-9 bg-[#0f1123] border-b border-[#28254c] flex items-center justify-between px-4 select-none text-xs">
         {/* Clickable Breadcrumbs */}
-        <div className="flex items-center gap-1.5 text-xs text-[#71717a]">
-          <FileText className="w-3.5 h-3.5 text-[#38bdf8] shrink-0 mr-0.5" />
+        <div className="flex items-center gap-1.5 text-xs text-[#94a3b8]">
+          <FileText className="w-3.5 h-3.5 text-[#c084fc] shrink-0 mr-0.5" />
           {pathParts.map((part, index) => {
             const isLast = index === pathParts.length - 1
             return (
               <React.Fragment key={index}>
                 <span
                   onClick={() => onNavigatePath && onNavigatePath(pathParts.slice(0, index + 1).join('/'))}
-                  className={`hover:text-[#f4f4f5] transition-colors cursor-pointer ${
-                    isLast ? 'text-[#f4f4f5] font-semibold' : 'text-[#a1a1aa]'
+                  className={`hover:text-[#f8fafc] transition-colors cursor-pointer ${
+                    isLast ? 'text-[#f8fafc] font-semibold' : 'text-[#94a3b8]'
                   }`}
                 >
                   {part}
                 </span>
-                {!isLast && <ChevronRight className="w-3 h-3 text-[#52525b] shrink-0" />}
+                {!isLast && <ChevronRight className="w-3 h-3 text-[#64748b] shrink-0" />}
               </React.Fragment>
             )
           })}
 
           {isSaving ? (
-            <span className="ml-3 text-[10px] text-[#10b981] flex items-center gap-1 font-mono">
+            <span className="ml-3 text-[10px] text-[#c084fc] flex items-center gap-1 font-mono">
               <Check className="w-3 h-3" /> Zapisano
             </span>
           ) : null}
         </div>
 
         {/* Mode Toggles */}
-        <div className="flex items-center gap-1 bg-[#18181b] p-0.5 rounded-lg border border-[#27272a]">
+        <div className="flex items-center gap-1 bg-[#16142e] p-0.5 rounded-lg border border-[#28254c]">
           <button
             onClick={() => setPreviewMode('edit')}
             className={`px-2 py-0.5 rounded-md text-[11px] flex items-center gap-1 transition-colors ${
-              previewMode === 'edit' ? 'bg-[#27272a] text-[#f4f4f5] font-medium shadow-sm' : 'text-[#71717a] hover:text-[#f4f4f5]'
+              previewMode === 'edit'
+                ? 'bg-[#25123e] text-[#c084fc] font-semibold shadow-sm border border-[#a855f7]/40'
+                : 'text-[#94a3b8] hover:text-[#f8fafc]'
             }`}
             title="Tylko edytor"
           >
@@ -345,19 +347,23 @@ export const MarkdownEditor: React.FC<Props> = ({
           <button
             onClick={() => setPreviewMode('split')}
             className={`px-2 py-0.5 rounded-md text-[11px] flex items-center gap-1 transition-colors ${
-              previewMode === 'split' ? 'bg-[#27272a] text-[#f4f4f5] font-medium shadow-sm' : 'text-[#71717a] hover:text-[#f4f4f5]'
+              previewMode === 'split'
+                ? 'bg-[#25123e] text-[#c084fc] font-semibold shadow-sm border border-[#a855f7]/40'
+                : 'text-[#94a3b8] hover:text-[#f8fafc]'
             }`}
             title="Widok podzielony"
           >
             <Sparkles className="w-3 h-3" />
-            <span>Podgląd Live</span>
+            <span>Live Split</span>
           </button>
           <button
             onClick={() => setPreviewMode('preview')}
             className={`px-2 py-0.5 rounded-md text-[11px] flex items-center gap-1 transition-colors ${
-              previewMode === 'preview' ? 'bg-[#27272a] text-[#f4f4f5] font-medium shadow-sm' : 'text-[#71717a] hover:text-[#f4f4f5]'
+              previewMode === 'preview'
+                ? 'bg-[#25123e] text-[#c084fc] font-semibold shadow-sm border border-[#a855f7]/40'
+                : 'text-[#94a3b8] hover:text-[#f8fafc]'
             }`}
-            title="Tylko podgląd"
+            title="Tylko podgląd czytania"
           >
             <Eye className="w-3 h-3" />
             <span>Czytanie</span>

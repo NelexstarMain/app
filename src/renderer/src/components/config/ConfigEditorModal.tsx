@@ -11,14 +11,15 @@ import {
   X,
   Check,
   AlertTriangle,
+  Plus,
+  Trash2,
+  Sparkles,
   Sliders,
   Type,
-  Maximize,
-  Sparkles,
-  Move
+  Maximize2
 } from 'lucide-react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
-import { AppConfig, DEFAULT_APP_CONFIG } from '../../../../shared/types/config'
+import { AppConfig, DEFAULT_APP_CONFIG, StickyPaletteColor } from '../../../../shared/types/config'
 
 interface Props {
   isOpen: boolean
@@ -26,7 +27,151 @@ interface Props {
   onConfigSaved?: (config: AppConfig) => void
 }
 
-type SettingsTab = 'appearance' | 'canvas' | 'graph' | 'srs' | 'json'
+type SettingsTab = 'appearance' | 'sticky' | 'pen' | 'graph' | 'srs' | 'json'
+
+// Helper to convert hex to RGB
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  let clean = hex.replace('#', '').trim()
+  if (clean.length === 3) {
+    clean = clean.split('').map((c) => c + c).join('')
+  }
+  const num = parseInt(clean, 16)
+  if (isNaN(num)) return { r: 168, g: 85, b: 247 }
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255
+  }
+}
+
+// Helper to convert RGB to hex
+function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (n: number) => Math.max(0, Math.min(255, Math.round(n)))
+  const toHex = (n: number) => clamp(n).toString(16).padStart(2, '0')
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+// Rich Interactive RGB Color Picker Control
+const RgbColorControl: React.FC<{
+  label: string
+  value: string
+  onChange: (hex: string) => void
+  description?: string
+}> = ({ label, value, onChange, description }) => {
+  const safeHex = value.startsWith('#') ? value : `#${value}`
+  const rgb = hexToRgb(safeHex)
+
+  const handleRgbChange = (channel: 'r' | 'g' | 'b', val: number) => {
+    const updated = { ...rgb, [channel]: val }
+    onChange(rgbToHex(updated.r, updated.g, updated.b))
+  }
+
+  const PRESETS = [
+    '#070913', '#0b112c', '#170c28', '#25123e', '#101438',
+    '#a855f7', '#c084fc', '#7c3aed', '#6366f1', '#38bdf8', '#f8fafc'
+  ]
+
+  return (
+    <div className="p-3.5 rounded-2xl bg-[#0f1123]/90 border border-[#28254c] space-y-2.5">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="font-semibold text-xs text-[#f8fafc]">{label}</div>
+          {description && <div className="text-[10px] text-[#94a3b8]">{description}</div>}
+        </div>
+
+        {/* Color Swatch & Hex Input */}
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <input
+              type="color"
+              value={safeHex}
+              onChange={(e) => onChange(e.target.value)}
+              className="w-8 h-8 rounded-xl border-2 border-[#a855f7]/40 cursor-pointer bg-transparent shadow-md"
+            />
+          </div>
+          <input
+            type="text"
+            value={safeHex.toUpperCase()}
+            onChange={(e) => {
+              if (e.target.value.startsWith('#')) {
+                onChange(e.target.value)
+              } else {
+                onChange(`#${e.target.value}`)
+              }
+            }}
+            className="w-20 px-2 py-1 rounded-lg bg-[#16142e] border border-[#28254c] font-mono text-xs text-[#c084fc] font-bold focus:outline-none focus:border-[#a855f7]"
+          />
+        </div>
+      </div>
+
+      {/* RGB Sliders */}
+      <div className="grid grid-cols-3 gap-2 pt-1">
+        {/* Red */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[10px] font-mono">
+            <span className="text-[#fb7185] font-bold">R:</span>
+            <span className="text-[#94a3b8]">{rgb.r}</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="255"
+            value={rgb.r}
+            onChange={(e) => handleRgbChange('r', Number(e.target.value))}
+            className="w-full h-1 bg-[#16142e] rounded-lg appearance-none cursor-pointer accent-[#fb7185]"
+          />
+        </div>
+
+        {/* Green */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[10px] font-mono">
+            <span className="text-[#4ade80] font-bold">G:</span>
+            <span className="text-[#94a3b8]">{rgb.g}</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="255"
+            value={rgb.g}
+            onChange={(e) => handleRgbChange('g', Number(e.target.value))}
+            className="w-full h-1 bg-[#16142e] rounded-lg appearance-none cursor-pointer accent-[#4ade80]"
+          />
+        </div>
+
+        {/* Blue */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[10px] font-mono">
+            <span className="text-[#38bdf8] font-bold">B:</span>
+            <span className="text-[#94a3b8]">{rgb.b}</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="255"
+            value={rgb.b}
+            onChange={(e) => handleRgbChange('b', Number(e.target.value))}
+            className="w-full h-1 bg-[#16142e] rounded-lg appearance-none cursor-pointer accent-[#38bdf8]"
+          />
+        </div>
+      </div>
+
+      {/* Quick Swatches */}
+      <div className="flex items-center gap-1.5 pt-1 overflow-x-auto no-scrollbar">
+        {PRESETS.map((hex) => (
+          <button
+            key={hex}
+            type="button"
+            onClick={() => onChange(hex)}
+            style={{ backgroundColor: hex }}
+            className={`w-4 h-4 rounded-full border transition-transform shrink-0 ${
+              safeHex.toLowerCase() === hex.toLowerCase() ? 'scale-125 border-white ring-2 ring-[#a855f7]' : 'border-transparent opacity-70 hover:opacity-100'
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
@@ -95,7 +240,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
   }
 
   const handleResetDefaults = async () => {
-    if (!confirm('Czy na pewno chcesz przywrócić domyślną konfigurację aplikacji?')) return
+    if (!confirm('Czy na pewno chcesz przywrócić domyślne kolory i ustawienia (Ciemny granat + Ciemny fiolet + Jasny fiolet)?')) return
     try {
       const res = await window.electronAPI.invoke(IpcChannel.CONFIG_RESET, undefined)
       if (res.success && res.config) {
@@ -112,84 +257,99 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 select-none animate-in fade-in">
-      <div className="w-full max-w-4xl h-[85vh] bg-[#111114] border border-[#27272a] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="h-12 px-5 border-b border-[#27272a] flex items-center justify-between shrink-0 bg-[#09090b]">
-          <div className="flex items-center gap-2.5 font-semibold text-sm text-[#f4f4f5]">
-            <div className="w-6 h-6 rounded-lg bg-[#38bdf8]/10 border border-[#38bdf8]/30 flex items-center justify-center">
-              <Settings className="w-3.5 h-3.5 text-[#38bdf8]" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 select-none animate-in fade-in">
+      <div className="w-full max-w-5xl h-[88vh] bg-[#0b0e1e] border border-[#28254c] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        {/* Top Header */}
+        <div className="h-14 px-6 border-b border-[#28254c] flex items-center justify-between shrink-0 bg-[#070913]">
+          <div className="flex items-center gap-3 font-semibold text-sm text-[#f8fafc]">
+            <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-[#a855f7] to-[#3b82f6] flex items-center justify-center shadow-lg shadow-purple-500/20">
+              <Settings className="w-4 h-4 text-white" />
             </div>
-            <span>Ustawienia aplikacji (CogniCanvas)</span>
+            <div>
+              <div className="font-bold tracking-tight text-[#f8fafc]">Centrum Ustawień & RGB Palet</div>
+              <div className="text-[10px] text-[#94a3b8] font-normal">Systemowy motyw: Ciemny Granat + Ciemny Fiolet + Jasny Fiolet</div>
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors"
+            className="p-1.5 rounded-xl text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e] transition-colors"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content Layout */}
         <div className="flex-1 flex overflow-hidden">
           {/* Sidebar Tabs */}
-          <div className="w-56 border-r border-[#27272a] bg-[#09090b] p-3 space-y-1 shrink-0 select-none">
+          <div className="w-60 border-r border-[#28254c] bg-[#070913] p-3 space-y-1.5 shrink-0 select-none">
             <button
               onClick={() => setActiveTab('appearance')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
                 activeTab === 'appearance'
-                  ? 'bg-[#18181b] text-[#38bdf8] border border-[#38bdf8]/30 shadow-sm font-semibold'
-                  : 'text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+                  ? 'bg-[#16142e] text-[#c084fc] border border-[#a855f7]/40 shadow-lg shadow-purple-500/10 font-bold'
+                  : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
               }`}
             >
-              <Palette className="w-4 h-4" />
-              <span>Wygląd & Motyw</span>
+              <Palette className="w-4 h-4 text-[#a855f7]" />
+              <span>Wygląd & Kolory UI</span>
             </button>
 
             <button
-              onClick={() => setActiveTab('canvas')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeTab === 'canvas'
-                  ? 'bg-[#18181b] text-[#f59e0b] border border-[#f59e0b]/30 shadow-sm font-semibold'
-                  : 'text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+              onClick={() => setActiveTab('sticky')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
+                activeTab === 'sticky'
+                  ? 'bg-[#16142e] text-[#c084fc] border border-[#a855f7]/40 shadow-lg shadow-purple-500/10 font-bold'
+                  : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
               }`}
             >
-              <LayoutGrid className="w-4 h-4" />
-              <span>Palety Canvasu</span>
+              <LayoutGrid className="w-4 h-4 text-[#c084fc]" />
+              <span>Karteczki Sticky (RGB)</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('pen')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
+                activeTab === 'pen'
+                  ? 'bg-[#16142e] text-[#c084fc] border border-[#a855f7]/40 shadow-lg shadow-purple-500/10 font-bold'
+                  : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-[#38bdf8]" />
+              <span>Kolory Pisaka (RGB)</span>
             </button>
 
             <button
               onClick={() => setActiveTab('graph')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
                 activeTab === 'graph'
-                  ? 'bg-[#18181b] text-[#a855f7] border border-[#a855f7]/30 shadow-sm font-semibold'
-                  : 'text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+                  ? 'bg-[#16142e] text-[#c084fc] border border-[#a855f7]/40 shadow-lg shadow-purple-500/10 font-bold'
+                  : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
               }`}
             >
-              <Share2 className="w-4 h-4" />
-              <span>Graf Wiedzy</span>
+              <Share2 className="w-4 h-4 text-[#818cf8]" />
+              <span>Graf Wiedzy (Fizyka & RGB)</span>
             </button>
 
             <button
               onClick={() => setActiveTab('srs')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
                 activeTab === 'srs'
-                  ? 'bg-[#18181b] text-[#10b981] border border-[#10b981]/30 shadow-sm font-semibold'
-                  : 'text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+                  ? 'bg-[#16142e] text-[#c084fc] border border-[#a855f7]/40 shadow-lg shadow-purple-500/10 font-bold'
+                  : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
               }`}
             >
-              <BookOpen className="w-4 h-4" />
+              <BookOpen className="w-4 h-4 text-[#7c3aed]" />
               <span>SRS & Fiszki</span>
             </button>
 
-            <div className="pt-2 border-t border-[#27272a]" />
+            <div className="pt-2 border-t border-[#28254c]" />
 
             <button
               onClick={() => setActiveTab('json')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
                 activeTab === 'json'
-                  ? 'bg-[#18181b] text-[#f4f4f5] border border-[#3f3f46] shadow-sm font-semibold'
-                  : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+                  ? 'bg-[#16142e] text-[#f8fafc] border border-[#3b3874] shadow-sm font-semibold'
+                  : 'text-[#64748b] hover:text-[#f8fafc] hover:bg-[#0f1123]'
               }`}
             >
               <Code className="w-4 h-4" />
@@ -197,49 +357,117 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
             </button>
           </div>
 
-          {/* Main Tab Viewport */}
-          <div className="flex-1 p-6 overflow-y-auto bg-[#0c0d10] text-xs">
-            {/* 1. WYGLĄD & MOTYW */}
+          {/* Main Tab Content Viewport */}
+          <div className="flex-1 p-6 overflow-y-auto bg-[#070913] text-xs">
+            {/* 1. WYGLĄD & KOLORY UI */}
             {activeTab === 'appearance' && (
-              <div className="max-w-xl space-y-6">
+              <div className="max-w-2xl space-y-6">
                 <div>
-                  <h3 className="text-sm font-semibold text-[#f4f4f5] mb-1">Kolor Akcentu UI</h3>
-                  <p className="text-[#71717a] text-[11px] mb-3">Główny kolor podświetleń, aktywnych narzędzi i ramek</p>
-                  <div className="flex items-center gap-2.5">
-                    {[
-                      { id: 'cyan', label: 'Błękit', bg: 'bg-[#38bdf8]', border: '#38bdf8' },
-                      { id: 'emerald', label: 'Szmaragd', bg: 'bg-[#10b981]', border: '#10b981' },
-                      { id: 'purple', label: 'Fiolet', bg: 'bg-[#a855f7]', border: '#a855f7' },
-                      { id: 'amber', label: 'Bursztyn', bg: 'bg-[#f59e0b]', border: '#f59e0b' },
-                      { id: 'rose', label: 'Róż', bg: 'bg-[#fb7185]', border: '#fb7185' }
-                    ].map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => {
-                          const updated = { ...config, theme: { ...config.theme, accentColor: c.id as any } }
-                          setConfig(updated)
-                          handleSave(updated)
-                        }}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all ${
-                          config.theme?.accentColor === c.id
-                            ? 'bg-[#18181b] border-white text-white font-bold shadow-md'
-                            : 'bg-[#141519] border-[#27272a] text-[#a1a1aa] hover:text-white'
-                        }`}
-                      >
-                        <span className={`w-3 h-3 rounded-full ${c.bg}`} />
-                        <span>{c.label}</span>
-                      </button>
-                    ))}
+                  <h3 className="text-sm font-bold text-[#f8fafc] mb-1">Systemowe Kolory Interfejsu (RGB)</h3>
+                  <p className="text-[#94a3b8] text-[11px] mb-4">
+                    Edytuj dowolny element interfejsu za pomocą precyzyjnych suwaków RGB lub próbnika kolorów.
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-3.5">
+                    <RgbColorControl
+                      label="Tło Aplikacji (Background)"
+                      description="Główne tło okna"
+                      value={config.theme?.bgApp || '#070913'}
+                      onChange={(hex) => {
+                        const updated = { ...config, theme: { ...config.theme, bgApp: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
+
+                    <RgbColorControl
+                      label="Tło Paneli & Bocznego Menu"
+                      description="Boczne menu i nagłówek"
+                      value={config.theme?.bgPanel || '#0f1123'}
+                      onChange={(hex) => {
+                        const updated = { ...config, theme: { ...config.theme, bgPanel: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
+
+                    <RgbColorControl
+                      label="Tło Kart & Obszaru Notatek"
+                      description="Wnętrza kart i edytora"
+                      value={config.theme?.bgCard || '#16142e'}
+                      onChange={(hex) => {
+                        const updated = { ...config, theme: { ...config.theme, bgCard: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
+
+                    <RgbColorControl
+                      label="Kolor Obramowań (Borders)"
+                      description="Linie podziału i ramki"
+                      value={config.theme?.borderColor || '#28254c'}
+                      onChange={(hex) => {
+                        const updated = { ...config, theme: { ...config.theme, borderColor: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
+
+                    <RgbColorControl
+                      label="Główny Akcent (Jasny Fiolet)"
+                      description="Podświetlenia i aktywne elementy"
+                      value={config.theme?.accentColor || '#a855f7'}
+                      onChange={(hex) => {
+                        const updated = { ...config, theme: { ...config.theme, accentColor: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
+
+                    <RgbColorControl
+                      label="Poświata Akcentu (Glow / Neon)"
+                      description="Efekt neonu wokół zaznaczeń"
+                      value={config.theme?.accentGlow || '#c084fc'}
+                      onChange={(hex) => {
+                        const updated = { ...config, theme: { ...config.theme, accentGlow: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
+
+                    <RgbColorControl
+                      label="Domyślny Kolor Ikon"
+                      description="Nieaktywne ikony w menu"
+                      value={config.theme?.iconColor || '#a5b4fc'}
+                      onChange={(hex) => {
+                        const updated = { ...config, theme: { ...config.theme, iconColor: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
+
+                    <RgbColorControl
+                      label="Aktywny Kolor Ikon"
+                      description="Zaznaczona ikona narzędzia"
+                      value={config.theme?.iconActiveColor || '#c084fc'}
+                      onChange={(hex) => {
+                        const updated = { ...config, theme: { ...config.theme, iconActiveColor: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-[#27272a]">
-                  <h3 className="text-sm font-semibold text-[#f4f4f5] mb-1">Siatka Canvasu</h3>
-                  <p className="text-[#71717a] text-[11px] mb-3">Dostosuj gęstość punktów siatki oraz przyciąganie</p>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#a1a1aa]">Gęstość siatki ({config.editor?.gridSize || 24}px):</span>
+                {/* Siatka & Typografia */}
+                <div className="pt-4 border-t border-[#28254c] space-y-4">
+                  <h3 className="text-sm font-bold text-[#f8fafc] mb-1">Siatka Canvasu & Typografia</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3.5 rounded-2xl bg-[#0f1123] border border-[#28254c] space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#f8fafc] font-semibold">Gęstość siatki:</span>
+                        <span className="font-mono text-[#c084fc] font-bold">{config.editor?.gridSize || 24}px</span>
+                      </div>
                       <input
                         type="range"
                         min="16"
@@ -251,12 +479,15 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
                           setConfig(updated)
                           handleSave(updated)
                         }}
-                        className="w-44 accent-[#38bdf8]"
+                        className="w-full accent-[#a855f7]"
                       />
                     </div>
 
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#a1a1aa]">Przyciąganie do siatki (Snap to grid):</span>
+                    <div className="p-3.5 rounded-2xl bg-[#0f1123] border border-[#28254c] flex items-center justify-between">
+                      <div>
+                        <div className="text-[#f8fafc] font-semibold">Przyciąganie do siatki:</div>
+                        <div className="text-[10px] text-[#94a3b8]">Snap-to-grid dla kart</div>
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
@@ -267,10 +498,10 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
                           setConfig(updated)
                           handleSave(updated)
                         }}
-                        className={`px-3 py-1 rounded-lg font-mono text-[11px] border transition-colors ${
+                        className={`px-3 py-1.5 rounded-xl font-mono text-[11px] border transition-colors ${
                           config.editor?.snapToGrid
-                            ? 'bg-[#10b981]/20 border-[#10b981] text-[#10b981] font-bold'
-                            : 'bg-[#18181b] border-[#27272a] text-[#71717a]'
+                            ? 'bg-[#a855f7]/20 border-[#a855f7] text-[#c084fc] font-bold'
+                            : 'bg-[#16142e] border-[#28254c] text-[#64748b]'
                         }`}
                       >
                         {config.editor?.snapToGrid ? 'WŁĄCZONE' : 'WYŁĄCZONE'}
@@ -278,221 +509,250 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
                     </div>
                   </div>
                 </div>
-
-                <div className="pt-4 border-t border-[#27272a]">
-                  <h3 className="text-sm font-semibold text-[#f4f4f5] mb-1">Typografia Edytora Notatek</h3>
-                  <p className="text-[#71717a] text-[11px] mb-3">Czcionka i czytelność w trybie Markdown</p>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#a1a1aa]">Krój czcionki:</span>
-                      <select
-                        value={config.editor?.defaultFontFamily || 'Inter, sans-serif'}
-                        onChange={(e) => {
-                          const updated = { ...config, editor: { ...config.editor, defaultFontFamily: e.target.value } }
-                          setConfig(updated)
-                          handleSave(updated)
-                        }}
-                        className="bg-[#18181b] border border-[#27272a] text-[#f4f4f5] rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-[#38bdf8]"
-                      >
-                        <option value="Inter, sans-serif">Inter (Nowoczesny Sans)</option>
-                        <option value="JetBrains Mono, monospace">JetBrains Mono</option>
-                        <option value="Fira Code, monospace">Fira Code</option>
-                        <option value="system-ui, sans-serif">System UI</option>
-                      </select>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#a1a1aa]">Wysokość linii ({config.editor?.lineHeight || 1.6}):</span>
-                      <div className="flex items-center gap-1.5">
-                        {[1.4, 1.6, 1.8].map((lh) => (
-                          <button
-                            key={lh}
-                            onClick={() => {
-                              const updated = { ...config, editor: { ...config.editor, lineHeight: lh } }
-                              setConfig(updated)
-                              handleSave(updated)
-                            }}
-                            className={`px-2 py-0.5 rounded font-mono text-[11px] border ${
-                              (config.editor?.lineHeight || 1.6) === lh
-                                ? 'bg-[#38bdf8]/20 border-[#38bdf8] text-[#38bdf8] font-bold'
-                                : 'bg-[#18181b] border-[#27272a] text-[#71717a]'
-                            }`}
-                          >
-                            {lh}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#a1a1aa]">Szerokość kolumny tekstu ({config.editor?.maxNoteWidth || 800}px):</span>
-                      <input
-                        type="range"
-                        min="600"
-                        max="1200"
-                        step="50"
-                        value={config.editor?.maxNoteWidth || 800}
-                        onChange={(e) => {
-                          const updated = {
-                            ...config,
-                            editor: { ...config.editor, maxNoteWidth: Number(e.target.value) }
-                          }
-                          setConfig(updated)
-                          handleSave(updated)
-                        }}
-                        className="w-44 accent-[#38bdf8]"
-                      />
-                    </div>
-                  </div>
-                </div>
               </div>
             )}
 
-            {/* 2. PALETY CANVASU */}
-            {activeTab === 'canvas' && (
-              <div className="max-w-2xl space-y-6">
+            {/* 2. KARTECZKI STICKY NOTE (RGB) */}
+            {activeTab === 'sticky' && (
+              <div className="space-y-6">
                 <div>
-                  <h3 className="text-sm font-semibold text-[#f4f4f5] mb-1">Paleta Karteczek Sticky Note</h3>
-                  <p className="text-[#71717a] text-[11px] mb-3">Kolory tła, obramowania i tekstu dla karteczek samoprzylepnych</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {config.stickyPalette?.map((item, idx) => (
+                  <h3 className="text-sm font-bold text-[#f8fafc] mb-1">Paleta Karteczek Sticky Note (Pełne RGB)</h3>
+                  <p className="text-[#94a3b8] text-[11px] mb-4">
+                    Dla każdego stylu karteczki możesz niezależnie ustawić RGB tła, RGB ramki oraz RGB tekstu z podglądem na żywo.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {config.stickyPalette?.map((item, idx) => {
+                    const bgSafe = item.bg?.startsWith('#') ? item.bg : '#170c28'
+                    const borderSafe = item.border?.startsWith('#') ? item.border : '#a855f7'
+                    const textSafe = item.text?.startsWith('#') ? item.text : '#f8fafc'
+
+                    return (
                       <div
                         key={item.id || idx}
-                        className={`p-3 rounded-xl border shadow-sm flex flex-col justify-between h-28 ${item.bg} ${item.border} ${item.text}`}
+                        className="p-4 rounded-2xl bg-[#0f1123] border border-[#28254c] space-y-3.5 shadow-lg"
                       >
-                        <div className="flex items-center justify-between">
-                          <input
-                            type="text"
-                            value={item.name}
-                            onChange={(e) => {
-                              const updatedPalette = [...config.stickyPalette]
-                              updatedPalette[idx] = { ...item, name: e.target.value }
-                              const updated = { ...config, stickyPalette: updatedPalette }
+                        {/* Live Sticky Preview Card */}
+                        <div
+                          style={{
+                            backgroundColor: bgSafe,
+                            borderColor: borderSafe,
+                            color: textSafe
+                          }}
+                          className="p-3.5 rounded-xl border-2 shadow-md flex flex-col justify-between h-28 transition-all"
+                        >
+                          <div className="flex items-center justify-between">
+                            <input
+                              type="text"
+                              value={item.name}
+                              onChange={(e) => {
+                                const copy = [...config.stickyPalette]
+                                copy[idx] = { ...item, name: e.target.value }
+                                const updated = { ...config, stickyPalette: copy }
+                                setConfig(updated)
+                                handleSave(updated)
+                              }}
+                              className="bg-transparent font-bold text-xs focus:outline-none border-b border-white/20 pb-0.5"
+                            />
+                            <span className="text-[10px] opacity-70 font-mono">#{idx + 1}</span>
+                          </div>
+                          <div className="text-[11px] opacity-90 leading-relaxed font-medium">
+                            Podgląd karteczki z wybranymi kolorami RGB...
+                          </div>
+                          <div className="text-[9px] opacity-60 self-end font-mono">Sticky Note Preview</div>
+                        </div>
+
+                        {/* 3 RGB Color Controls for this Sticky Note */}
+                        <div className="space-y-2">
+                          <RgbColorControl
+                            label="Kolor Tła (RGB)"
+                            value={bgSafe}
+                            onChange={(hex) => {
+                              const copy = [...config.stickyPalette]
+                              copy[idx] = { ...item, bg: hex }
+                              const updated = { ...config, stickyPalette: copy }
                               setConfig(updated)
                               handleSave(updated)
                             }}
-                            className="bg-transparent font-bold text-xs focus:outline-none border-b border-black/20"
                           />
-                          <span className="text-[10px] opacity-70 font-mono">#{idx + 1}</span>
-                        </div>
-                        <div className="text-[11px] opacity-80">Przykładowy tekst karteczki...</div>
-                        <div className="text-[9px] opacity-60 self-end font-mono">Sticky Palette</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
 
-                <div className="pt-4 border-t border-[#27272a]">
-                  <h3 className="text-sm font-semibold text-[#f4f4f5] mb-1">Kolory Pisaka (Pen Palette)</h3>
-                  <p className="text-[#71717a] text-[11px] mb-3">Dostępne kolory do swobodnego rysowania na Canvasie</p>
-                  <div className="flex flex-wrap gap-2">
-                    {config.penPalette?.map((p, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center gap-2 p-2 rounded-xl bg-[#18181b] border border-[#27272a]"
-                      >
-                        <input
-                          type="color"
-                          value={p.value}
-                          onChange={(e) => {
-                            const updatedPen = [...config.penPalette]
-                            updatedPen[idx] = { ...p, value: e.target.value }
-                            const updated = { ...config, penPalette: updatedPen }
-                            setConfig(updated)
-                            handleSave(updated)
-                          }}
-                          className="w-6 h-6 rounded border-0 cursor-pointer bg-transparent"
-                        />
-                        <input
-                          type="text"
-                          value={p.label}
-                          onChange={(e) => {
-                            const updatedPen = [...config.penPalette]
-                            updatedPen[idx] = { ...p, label: e.target.value }
-                            const updated = { ...config, penPalette: updatedPen }
-                            setConfig(updated)
-                            handleSave(updated)
-                          }}
-                          className="w-20 bg-transparent text-xs text-[#f4f4f5] focus:outline-none border-b border-transparent focus:border-[#38bdf8]"
-                        />
+                          <RgbColorControl
+                            label="Kolor Ramki / Border (RGB)"
+                            value={borderSafe}
+                            onChange={(hex) => {
+                              const copy = [...config.stickyPalette]
+                              copy[idx] = { ...item, border: hex }
+                              const updated = { ...config, stickyPalette: copy }
+                              setConfig(updated)
+                              handleSave(updated)
+                            }}
+                          />
+
+                          <RgbColorControl
+                            label="Kolor Tekstu (RGB)"
+                            value={textSafe}
+                            onChange={(hex) => {
+                              const copy = [...config.stickyPalette]
+                              copy[idx] = { ...item, text: hex }
+                              const updated = { ...config, stickyPalette: copy }
+                              setConfig(updated)
+                              handleSave(updated)
+                            }}
+                          />
+                        </div>
                       </div>
-                    ))}
-                  </div>
+                    )
+                  })}
                 </div>
               </div>
             )}
 
-            {/* 3. GRAF WIEDZY */}
+            {/* 3. KOLORY PISAKA (PEN PALETTE RGB) */}
+            {activeTab === 'pen' && (
+              <div className="max-w-2xl space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-[#f8fafc] mb-1">Kolory Pisaka na Canvasie (RGB)</h3>
+                    <p className="text-[#94a3b8] text-[11px]">
+                      Dostosuj paletę pisaka do swobodnego rysowania za pomocą suwaków RGB.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newColor = { label: 'Nowy Kolor', value: '#c084fc' }
+                      const updated = { ...config, penPalette: [...config.penPalette, newColor] }
+                      setConfig(updated)
+                      handleSave(updated)
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-[#a855f7]/20 hover:bg-[#a855f7]/30 text-[#c084fc] border border-[#a855f7]/40 flex items-center gap-1.5 font-bold text-xs shadow-md transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Dodaj kolor</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {config.penPalette?.map((pen, idx) => (
+                    <div
+                      key={idx}
+                      className="p-4 rounded-2xl bg-[#0f1123] border border-[#28254c] space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <input
+                          type="text"
+                          value={pen.label}
+                          onChange={(e) => {
+                            const copy = [...config.penPalette]
+                            copy[idx] = { ...pen, label: e.target.value }
+                            const updated = { ...config, penPalette: copy }
+                            setConfig(updated)
+                            handleSave(updated)
+                          }}
+                          className="bg-transparent font-bold text-xs text-[#f8fafc] focus:outline-none border-b border-[#28254c] focus:border-[#a855f7] pb-0.5"
+                        />
+
+                        {config.penPalette.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const copy = config.penPalette.filter((_, i) => i !== idx)
+                              const updated = { ...config, penPalette: copy }
+                              setConfig(updated)
+                              handleSave(updated)
+                            }}
+                            className="p-1 rounded-lg text-[#94a3b8] hover:text-[#fb7185] transition-colors"
+                            title="Usuń ten kolor"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      <RgbColorControl
+                        label="Wartość Koloru Pisaka (RGB)"
+                        value={pen.value}
+                        onChange={(hex) => {
+                          const copy = [...config.penPalette]
+                          copy[idx] = { ...pen, value: hex }
+                          const updated = { ...config, penPalette: copy }
+                          setConfig(updated)
+                          handleSave(updated)
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 4. GRAF WIEDZY */}
             {activeTab === 'graph' && (
-              <div className="max-w-xl space-y-6">
+              <div className="max-w-2xl space-y-6">
                 <div>
-                  <h3 className="text-sm font-semibold text-[#f4f4f5] mb-1">Kolory Węzłów i Krawędzi Grafu</h3>
-                  <p className="text-[#71717a] text-[11px] mb-3">Wizualna identyfikacja typów elementów w grafie wiedzy</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-[#18181b] border border-[#27272a]">
-                      <span className="text-[#f4f4f5] font-medium">Notatki (Notes):</span>
-                      <input
-                        type="color"
-                        value={config.graph?.nodeColorNote || '#10b981'}
-                        onChange={(e) => {
-                          const updated = { ...config, graph: { ...config.graph, nodeColorNote: e.target.value } }
-                          setConfig(updated)
-                          handleSave(updated)
-                        }}
-                        className="w-7 h-7 rounded border-0 cursor-pointer bg-transparent"
-                      />
-                    </div>
+                  <h3 className="text-sm font-bold text-[#f8fafc] mb-1">Kolory Węzłów i Krawędzi Grafu (RGB)</h3>
+                  <p className="text-[#94a3b8] text-[11px] mb-4">
+                    Wizualna identyfikacja typów elementów w grafie wiedzy za pomocą RGB.
+                  </p>
 
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-[#18181b] border border-[#27272a]">
-                      <span className="text-[#f4f4f5] font-medium">Tablice (Canvases):</span>
-                      <input
-                        type="color"
-                        value={config.graph?.nodeColorCanvas || '#38bdf8'}
-                        onChange={(e) => {
-                          const updated = { ...config, graph: { ...config.graph, nodeColorCanvas: e.target.value } }
-                          setConfig(updated)
-                          handleSave(updated)
-                        }}
-                        className="w-7 h-7 rounded border-0 cursor-pointer bg-transparent"
-                      />
-                    </div>
+                  <div className="grid grid-cols-2 gap-3.5">
+                    <RgbColorControl
+                      label="Węzły Notatek (Notes)"
+                      description="Jasny fiolet / akcent"
+                      value={config.graph?.nodeColorNote || '#a855f7'}
+                      onChange={(hex) => {
+                        const updated = { ...config, graph: { ...config.graph, nodeColorNote: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
 
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-[#18181b] border border-[#27272a]">
-                      <span className="text-[#f4f4f5] font-medium">Zasoby / Obrazy:</span>
-                      <input
-                        type="color"
-                        value={config.graph?.nodeColorAsset || '#c084fc'}
-                        onChange={(e) => {
-                          const updated = { ...config, graph: { ...config.graph, nodeColorAsset: e.target.value } }
-                          setConfig(updated)
-                          handleSave(updated)
-                        }}
-                        className="w-7 h-7 rounded border-0 cursor-pointer bg-transparent"
-                      />
-                    </div>
+                    <RgbColorControl
+                      label="Węzły Tablic (Canvases)"
+                      description="Granatowo-fioletowy"
+                      value={config.graph?.nodeColorCanvas || '#818cf8'}
+                      onChange={(hex) => {
+                        const updated = { ...config, graph: { ...config.graph, nodeColorCanvas: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
 
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-[#18181b] border border-[#27272a]">
-                      <span className="text-[#f4f4f5] font-medium">Krawędzie relacji:</span>
-                      <input
-                        type="color"
-                        value={config.graph?.edgeColor || '#3f3f46'}
-                        onChange={(e) => {
-                          const updated = { ...config, graph: { ...config.graph, edgeColor: e.target.value } }
-                          setConfig(updated)
-                          handleSave(updated)
-                        }}
-                        className="w-7 h-7 rounded border-0 cursor-pointer bg-transparent"
-                      />
-                    </div>
+                    <RgbColorControl
+                      label="Węzły Zasobów / Obrazów"
+                      description="Jasny lawendowy"
+                      value={config.graph?.nodeColorAsset || '#c084fc'}
+                      onChange={(hex) => {
+                        const updated = { ...config, graph: { ...config.graph, nodeColorAsset: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
+
+                    <RgbColorControl
+                      label="Krawędzie Relacji (Edges)"
+                      description="Ciemny fiolet / granat"
+                      value={config.graph?.edgeColor || '#3b3874'}
+                      onChange={(hex) => {
+                        const updated = { ...config, graph: { ...config.graph, edgeColor: hex } }
+                        setConfig(updated)
+                        handleSave(updated)
+                      }}
+                    />
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-[#27272a]">
-                  <h3 className="text-sm font-semibold text-[#f4f4f5] mb-1">Fizyka Symulacji Grafu (Force Layout)</h3>
-                  <p className="text-[#71717a] text-[11px] mb-3">Zachowanie i rozszerzanie powiązań na ekranie</p>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#a1a1aa]">Siła odpychania ({config.graph?.repulsionForce || 750}):</span>
+                {/* Fizyka Symulacji */}
+                <div className="pt-4 border-t border-[#28254c] space-y-4">
+                  <h3 className="text-sm font-bold text-[#f8fafc] mb-1">Fizyka Symulacji Grafu (Force Layout)</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3.5 rounded-2xl bg-[#0f1123] border border-[#28254c] space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#f8fafc] font-semibold">Siła odpychania:</span>
+                        <span className="font-mono text-[#c084fc] font-bold">{config.graph?.repulsionForce || 750}</span>
+                      </div>
                       <input
                         type="range"
                         min="200"
@@ -507,12 +767,15 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
                           setConfig(updated)
                           handleSave(updated)
                         }}
-                        className="w-44 accent-[#a855f7]"
+                        className="w-full accent-[#a855f7]"
                       />
                     </div>
 
-                    <div className="flex items-center justify-between">
-                      <span className="text-[#a1a1aa]">Sprężystość krawędzi ({config.graph?.springForce || 0.005}):</span>
+                    <div className="p-3.5 rounded-2xl bg-[#0f1123] border border-[#28254c] space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#f8fafc] font-semibold">Sprężystość krawędzi:</span>
+                        <span className="font-mono text-[#c084fc] font-bold">{config.graph?.springForce || 0.005}</span>
+                      </div>
                       <input
                         type="range"
                         min="0.001"
@@ -527,7 +790,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
                           setConfig(updated)
                           handleSave(updated)
                         }}
-                        className="w-44 accent-[#a855f7]"
+                        className="w-full accent-[#a855f7]"
                       />
                     </div>
                   </div>
@@ -535,17 +798,17 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
               </div>
             )}
 
-            {/* 4. SRS & FISZKI */}
+            {/* 5. SRS & FISZKI */}
             {activeTab === 'srs' && (
               <div className="max-w-xl space-y-6">
                 <div>
-                  <h3 className="text-sm font-semibold text-[#f4f4f5] mb-1">Parametry Algorytmu FSRS</h3>
-                  <p className="text-[#71717a] text-[11px] mb-3">Dostosuj tempo powtórek fiszek Active Recall</p>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-[#18181b] border border-[#27272a]">
+                  <h3 className="text-sm font-bold text-[#f8fafc] mb-1">Parametry Algorytmu FSRS</h3>
+                  <p className="text-[#94a3b8] text-[11px] mb-4">Dostosuj tempo powtórek fiszek Active Recall</p>
+                  <div className="space-y-3.5">
+                    <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#0f1123] border border-[#28254c]">
                       <div>
-                        <div className="font-semibold text-[#f4f4f5]">Domyślna stabilność początkowa (Dni):</div>
-                        <div className="text-[10px] text-[#71717a]">Okres do pierwszej powtórki nowej fiszki</div>
+                        <div className="font-semibold text-[#f8fafc]">Domyślna stabilność początkowa (Dni):</div>
+                        <div className="text-[10px] text-[#94a3b8]">Okres do pierwszej powtórki nowej fiszki</div>
                       </div>
                       <input
                         type="number"
@@ -561,14 +824,14 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
                           setConfig(updated)
                           handleSave(updated)
                         }}
-                        className="w-20 bg-[#27272a] border border-[#3f3f46] text-[#f4f4f5] rounded-lg px-2 py-1 font-mono text-xs focus:outline-none focus:border-[#10b981]"
+                        className="w-20 bg-[#16142e] border border-[#28254c] text-[#c084fc] font-bold rounded-xl px-2 py-1 font-mono text-xs focus:outline-none focus:border-[#a855f7]"
                       />
                     </div>
 
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-[#18181b] border border-[#27272a]">
+                    <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#0f1123] border border-[#28254c]">
                       <div>
-                        <div className="font-semibold text-[#f4f4f5]">Domyślna trudność bazowa (1 - 10):</div>
-                        <div className="text-[10px] text-[#71717a]">Wyższa wartość częściej planuje powtórki</div>
+                        <div className="font-semibold text-[#f8fafc]">Domyślna trudność bazowa (1 - 10):</div>
+                        <div className="text-[10px] text-[#94a3b8]">Wyższa wartość częściej planuje powtórki</div>
                       </div>
                       <input
                         type="number"
@@ -584,14 +847,14 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
                           setConfig(updated)
                           handleSave(updated)
                         }}
-                        className="w-20 bg-[#27272a] border border-[#3f3f46] text-[#f4f4f5] rounded-lg px-2 py-1 font-mono text-xs focus:outline-none focus:border-[#10b981]"
+                        className="w-20 bg-[#16142e] border border-[#28254c] text-[#c084fc] font-bold rounded-xl px-2 py-1 font-mono text-xs focus:outline-none focus:border-[#a855f7]"
                       />
                     </div>
 
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-[#18181b] border border-[#27272a]">
+                    <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#0f1123] border border-[#28254c]">
                       <div>
-                        <div className="font-semibold text-[#f4f4f5]">Limit powtórek na sesję:</div>
-                        <div className="text-[10px] text-[#71717a]">Maksymalna liczba kart podczas jednej rundy</div>
+                        <div className="font-semibold text-[#f8fafc]">Limit powtórek na sesję:</div>
+                        <div className="text-[10px] text-[#94a3b8]">Maksymalna liczba kart podczas jednej sesji</div>
                       </div>
                       <input
                         type="number"
@@ -607,7 +870,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
                           setConfig(updated)
                           handleSave(updated)
                         }}
-                        className="w-20 bg-[#27272a] border border-[#3f3f46] text-[#f4f4f5] rounded-lg px-2 py-1 font-mono text-xs focus:outline-none focus:border-[#10b981]"
+                        className="w-20 bg-[#16142e] border border-[#28254c] text-[#c084fc] font-bold rounded-xl px-2 py-1 font-mono text-xs focus:outline-none focus:border-[#a855f7]"
                       />
                     </div>
                   </div>
@@ -615,20 +878,20 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
               </div>
             )}
 
-            {/* 5. SUROWY PLIK CONFIG.JSON */}
+            {/* 6. SUROWY PLIK CONFIG.JSON */}
             {activeTab === 'json' && (
               <div className="h-full flex flex-col space-y-2">
-                <div className="flex items-center justify-between text-[11px] text-[#71717a]">
+                <div className="flex items-center justify-between text-[11px] text-[#94a3b8]">
                   <div className="flex items-center gap-1.5">
-                    <Code className="w-3.5 h-3.5 text-[#38bdf8]" />
-                    <span>Bezpośrednia edycja surowego JSON (config.json)</span>
+                    <Code className="w-3.5 h-3.5 text-[#c084fc]" />
+                    <span>Bezpośrednia edycja surowego pliku JSON (config.json)</span>
                   </div>
                   {jsonError ? (
                     <span className="text-[#fb7185] flex items-center gap-1 font-mono text-[10px]">
                       <AlertTriangle className="w-3 h-3" /> Niepoprawny JSON
                     </span>
                   ) : (
-                    <span className="text-[#10b981] flex items-center gap-1 font-mono text-[10px]">
+                    <span className="text-[#4ade80] flex items-center gap-1 font-mono text-[10px]">
                       <Check className="w-3 h-3" /> JSON Prawidłowy
                     </span>
                   )}
@@ -638,15 +901,15 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
                   value={rawJson}
                   onChange={(e) => handleRawJsonChange(e.target.value)}
                   spellCheck={false}
-                  className={`w-full flex-1 p-3.5 rounded-xl bg-[#111114] border font-mono text-xs text-[#f4f4f5] resize-none focus:outline-none leading-relaxed transition-colors ${
+                  className={`w-full flex-1 p-3.5 rounded-2xl bg-[#0f1123] border font-mono text-xs text-[#f8fafc] resize-none focus:outline-none leading-relaxed transition-colors ${
                     jsonError
                       ? 'border-[#fb7185]/60 focus:border-[#fb7185]'
-                      : 'border-[#27272a] focus:border-[#38bdf8]'
+                      : 'border-[#28254c] focus:border-[#a855f7]'
                   }`}
                 />
 
                 {jsonError && (
-                  <div className="p-2 rounded-lg bg-[#fb7185]/10 border border-[#fb7185]/30 text-[11px] text-[#fb7185] font-mono">
+                  <div className="p-2.5 rounded-xl bg-[#fb7185]/10 border border-[#fb7185]/30 text-[11px] text-[#fb7185] font-mono">
                     {jsonError}
                   </div>
                 )}
@@ -656,27 +919,27 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
         </div>
 
         {/* Footer Actions */}
-        <div className="h-14 px-5 border-t border-[#27272a] flex items-center justify-between shrink-0 bg-[#09090b]">
+        <div className="h-14 px-6 border-t border-[#28254c] flex items-center justify-between shrink-0 bg-[#070913]">
           <button
             onClick={handleResetDefaults}
-            className="px-3.5 py-1.5 rounded-xl bg-[#18181b] hover:bg-[#27272a] text-xs text-[#a1a1aa] hover:text-[#fb7185] font-medium flex items-center gap-1.5 border border-[#27272a] transition-colors"
-            title="Przywróć domyślne ustawienia"
+            className="px-4 py-2 rounded-xl bg-[#0f1123] hover:bg-[#16142e] text-xs text-[#94a3b8] hover:text-[#fb7185] font-medium flex items-center gap-2 border border-[#28254c] transition-colors"
+            title="Przywróć domyślne kolory (Ciemny granat, Ciemny fiolet, Jasny fiolet)"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Przywróć domyślne</span>
           </button>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-[#18181b] hover:bg-[#27272a] text-xs text-[#a1a1aa] font-medium"
+              className="px-4 py-2 rounded-xl bg-[#0f1123] hover:bg-[#16142e] text-xs text-[#94a3b8] font-medium"
             >
               Zamknij
             </button>
             <button
               onClick={() => handleSave()}
               disabled={!!jsonError || isSaving}
-              className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#38bdf8] to-[#10b981] text-black font-bold text-xs flex items-center gap-1.5 shadow-md hover:opacity-90 disabled:opacity-40"
+              className="px-6 py-2 rounded-xl bg-gradient-to-r from-[#a855f7] to-[#3b82f6] text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-purple-500/25 hover:opacity-95 disabled:opacity-40"
             >
               {saveSuccess ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
               <span>{saveSuccess ? 'Zapisano!' : 'Zastosuj i zapisz'}</span>

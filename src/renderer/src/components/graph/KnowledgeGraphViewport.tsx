@@ -51,10 +51,10 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
       // Load config for graph colors & physics
       const cfgRes = await window.electronAPI.invoke(IpcChannel.CONFIG_GET, undefined)
       const graphCfg = cfgRes?.config?.graph || {
-        nodeColorNote: '#10b981',
-        nodeColorCanvas: '#38bdf8',
+        nodeColorNote: '#a855f7',
+        nodeColorCanvas: '#818cf8',
         nodeColorAsset: '#c084fc',
-        edgeColor: '#3f3f46',
+        edgeColor: '#3b3874',
         repulsionForce: 750,
         springForce: 0.005
       }
@@ -346,11 +346,11 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
 
       {/* Floating Multi-Select & Link Bar */}
       {selectedNodeIds.length > 1 && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#18181b]/95 border border-[#38bdf8] shadow-2xl text-xs backdrop-blur-md animate-in fade-in">
-          <span className="font-semibold text-[#f4f4f5]">Zaznaczono {selectedNodeIds.length} węzłów</span>
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#0f1123]/95 border border-[#a855f7] shadow-2xl text-xs backdrop-blur-md animate-in fade-in">
+          <span className="font-semibold text-[#f8fafc]">Zaznaczono {selectedNodeIds.length} węzłów</span>
           <button
             onClick={handleConnectSelected}
-            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-[#38bdf8] to-[#10b981] text-black font-bold text-xs flex items-center gap-1.5 shadow-md hover:opacity-90 transition-opacity"
+            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-[#a855f7] to-[#3b82f6] text-white font-bold text-xs flex items-center gap-1.5 shadow-md hover:opacity-95 transition-opacity"
           >
             {justLinked ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
             <span>{justLinked ? 'Połączono pomyślnie!' : 'Połącz zaznaczone relacją'}</span>
@@ -359,16 +359,16 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
       )}
 
       {/* Interactive Node Selection Sidebar Drawer */}
-      <div className="absolute top-4 right-4 z-30 w-64 max-h-[calc(100%-32px)] bg-[#141519]/95 border border-[#27272a] rounded-2xl shadow-2xl backdrop-blur-md flex flex-col text-xs overflow-hidden">
-        <div className="p-3 border-b border-[#27272a] flex items-center justify-between">
-          <div className="flex items-center gap-1.5 font-semibold text-[#f4f4f5]">
-            <Sparkles className="w-3.5 h-3.5 text-[#38bdf8]" />
+      <div className="absolute top-4 right-4 z-30 w-64 max-h-[calc(100%-32px)] bg-[#0f1123]/95 border border-[#28254c] rounded-2xl shadow-2xl backdrop-blur-md flex flex-col text-xs overflow-hidden">
+        <div className="p-3 border-b border-[#28254c] flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-semibold text-[#f8fafc]">
+            <Sparkles className="w-3.5 h-3.5 text-[#c084fc]" />
             <span>Węzły grafu ({nodes.length})</span>
           </div>
           {selectedNodeIds.length > 0 && (
             <button
               onClick={() => setSelectedNodeIds([])}
-              className="text-[10px] text-[#71717a] hover:text-[#fb7185]"
+              className="text-[10px] text-[#94a3b8] hover:text-[#fb7185]"
             >
               Odznacz
             </button>
@@ -376,15 +376,15 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
         </div>
 
         {/* Search Input */}
-        <div className="p-2 border-b border-[#27272a]">
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#18181b] border border-[#27272a]">
-            <Search className="w-3 h-3 text-[#71717a]" />
+        <div className="p-2 border-b border-[#28254c]">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#16142e] border border-[#28254c]">
+            <Search className="w-3 h-3 text-[#94a3b8]" />
             <input
               type="text"
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
               placeholder="Szukaj węzła..."
-              className="w-full bg-transparent text-[11px] text-[#f4f4f5] placeholder-[#52525b] focus:outline-none"
+              className="w-full bg-transparent text-[11px] text-[#f8fafc] placeholder-[#64748b] focus:outline-none"
             />
           </div>
         </div>
@@ -399,14 +399,14 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
                 onClick={() => toggleNodeSelection(n.id)}
                 className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer transition-colors ${
                   isSelected
-                    ? 'bg-[#18181b] text-[#38bdf8] font-semibold border border-[#38bdf8]/40'
-                    : 'text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+                    ? 'bg-[#16142e] text-[#c084fc] font-semibold border border-[#a855f7]/40'
+                    : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e]'
                 }`}
               >
                 {isSelected ? (
-                  <CheckSquare className="w-4 h-4 text-[#38bdf8] shrink-0" />
+                  <CheckSquare className="w-4 h-4 text-[#c084fc] shrink-0" />
                 ) : (
-                  <Square className="w-4 h-4 text-[#52525b] shrink-0" />
+                  <Square className="w-4 h-4 text-[#64748b] shrink-0" />
                 )}
                 <span
                   className="w-2.5 h-2.5 rounded-full shrink-0"

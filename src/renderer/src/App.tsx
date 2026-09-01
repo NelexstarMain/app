@@ -5,7 +5,7 @@ import { CanvasDocument } from '../../shared/types/canvas'
 import { TaskTodoRecord } from '../../shared/types/database'
 import { SessionManager } from './state/sessionStore'
 import { parseCliCommand, ParsedCommand } from '../../shared/types/commands'
-import { LayoutGrid, Share2, CheckSquare, BookOpen, BarChart2, X, Plus, FileText, AlignLeft } from 'lucide-react'
+import { LayoutGrid, Share2, CheckSquare, BookOpen, BarChart2, X, Plus, FileText, AlignLeft, FolderTree } from 'lucide-react'
 
 // Components
 import { WorkspaceSelector } from './components/workspace/WorkspaceSelector'
@@ -469,21 +469,37 @@ export const App: React.FC = () => {
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         onToggleTaskComplete={handleToggleTaskComplete}
       />
+      {/* Main App Workspace Shell */}
+      <div className="flex-1 flex overflow-hidden relative bg-[#070913]">
+        {/* Extreme Left Activity Bar */}
+        <aside className="w-12 bg-[#070913] border-r border-[#28254c] flex flex-col items-center py-3 gap-2.5 shrink-0 z-10 select-none">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            title="Drzewo plików (Ctrl+\)"
+            className={`p-2 rounded-xl transition-all ${
+              sidebarOpen
+                ? 'bg-[#16142e] text-[#c084fc] shadow-md ring-1 ring-[#a855f7]/40'
+                : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+            }`}
+          >
+            <FolderTree className="w-4 h-4" />
+          </button>
 
-      {/* Main Work Container */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Far Left Activity Bar */}
-        <aside className="w-12 h-full bg-[#09090b] border-r border-[#27272a] flex flex-col items-center py-3 gap-2 z-20 shrink-0">
+          <div className="w-6 h-px bg-[#28254c] my-1" />
+
           <button
             onClick={() => {
-              setActiveType('canvas')
+              if (activeType !== 'canvas') {
+                const firstCanvas = fileTree.find((f) => f.name.endsWith('.canvas') || f.name.endsWith('.json'))
+                if (firstCanvas) handleOpenFile(firstCanvas)
+              }
               setSidebarOpen(true)
             }}
             title="Tablice Canvas (Siatka)"
-            className={`p-2.5 rounded-xl transition-all ${
+            className={`p-2 rounded-xl transition-all ${
               activeType === 'canvas'
-                ? 'bg-[#27272a] text-[#a855f7] shadow-md ring-1 ring-[#a855f7]/40'
-                : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+                ? 'bg-[#16142e] text-[#c084fc] shadow-md ring-1 ring-[#a855f7]/40'
+                : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
             }`}
           >
             <LayoutGrid className="w-4 h-4" />
@@ -492,10 +508,10 @@ export const App: React.FC = () => {
           <button
             onClick={() => setActiveType('graph')}
             title="Graf Wiedzy (Graph View)"
-            className={`p-2.5 rounded-xl transition-all ${
+            className={`p-2 rounded-xl transition-all ${
               activeType === 'graph'
-                ? 'bg-[#27272a] text-[#38bdf8] shadow-md ring-1 ring-[#38bdf8]/40'
-                : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+                ? 'bg-[#16142e] text-[#818cf8] shadow-md ring-1 ring-[#818cf8]/40'
+                : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
             }`}
           >
             <Share2 className="w-4 h-4" />
@@ -504,21 +520,21 @@ export const App: React.FC = () => {
           <button
             onClick={() => setActiveType('tasks')}
             title="Zadania & Checklist (To-Do)"
-            className={`p-2.5 rounded-xl transition-all ${
+            className={`p-2 rounded-xl transition-all ${
               activeType === 'tasks'
-                ? 'bg-[#27272a] text-[#10b981] shadow-md ring-1 ring-[#10b981]/40'
-                : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+                ? 'bg-[#16142e] text-[#c084fc] shadow-md ring-1 ring-[#a855f7]/40'
+                : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
             }`}
           >
             <CheckSquare className="w-4 h-4" />
           </button>
 
-          <div className="w-6 h-px bg-[#27272a] my-1" />
+          <div className="w-6 h-px bg-[#28254c] my-1" />
 
           <button
             onClick={() => setReviewRunnerOpen(true)}
             title="Powtórki SRS (#review)"
-            className="p-2.5 rounded-xl text-[#71717a] hover:text-[#f59e0b] hover:bg-[#18181b] transition-all"
+            className="p-2 rounded-xl text-[#94a3b8] hover:text-[#c084fc] hover:bg-[#0f1123] transition-all"
           >
             <BookOpen className="w-4 h-4" />
           </button>
@@ -526,7 +542,7 @@ export const App: React.FC = () => {
           <button
             onClick={() => setAnalyticsModalOpen(true)}
             title="Analityka Skupienia (#stats)"
-            className="p-2.5 rounded-xl text-[#71717a] hover:text-[#10b981] hover:bg-[#18181b] transition-all"
+            className="p-2 rounded-xl text-[#94a3b8] hover:text-[#818cf8] hover:bg-[#0f1123] transition-all"
           >
             <BarChart2 className="w-4 h-4" />
           </button>
@@ -554,16 +570,16 @@ export const App: React.FC = () => {
             {/* Sidebar Resizer Splitter */}
             <div
               onMouseDown={handleSidebarMouseDown}
-              className="w-1.5 h-full bg-transparent hover:bg-[#38bdf8]/40 cursor-ew-resize absolute top-0 right-0 z-30 transition-colors"
+              className="w-1.5 h-full bg-transparent hover:bg-[#a855f7]/40 cursor-ew-resize absolute top-0 right-0 z-30 transition-colors"
               title="Przeciągnij, aby zmienić szerokość"
             />
           </div>
         )}
 
-        {/* Center Main Work Area (NO BOTTOM FOOTER / NO CLI BAR) */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#0c0c0e] relative">
+        {/* Center Main Work Area */}
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#070913] relative">
           {/* Tabs Bar */}
-          <div className="h-9 bg-[#111114] border-b border-[#27272a] flex items-center px-1.5 overflow-x-auto no-scrollbar gap-1 text-xs shrink-0">
+          <div className="h-9 bg-[#0f1123] border-b border-[#28254c] flex items-center px-1.5 overflow-x-auto no-scrollbar gap-1 text-xs shrink-0">
             {openTabs.map((tab) => {
               const isActive = activeTabId === tab.id
               return (
@@ -572,21 +588,21 @@ export const App: React.FC = () => {
                   onClick={() => handleSelectTab(tab)}
                   className={`h-7 px-3 rounded-lg flex items-center gap-2 cursor-pointer text-[11px] transition-all ${
                     isActive
-                      ? 'bg-[#18181b] text-[#f4f4f5] font-semibold border border-[#3f3f46] shadow-sm'
-                      : 'text-[#71717a] hover:text-[#f4f4f5] hover:bg-[#18181b]'
+                      ? 'bg-[#16142e] text-[#f8fafc] font-semibold border border-[#a855f7]/40 shadow-sm'
+                      : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e]'
                   }`}
                 >
                   {tab.type === 'canvas' ? (
-                    <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7]" />
+                    <LayoutGrid className="w-3.5 h-3.5 text-[#c084fc]" />
                   ) : tab.type === 'md' ? (
-                    <FileText className="w-3.5 h-3.5 text-[#38bdf8]" />
+                    <FileText className="w-3.5 h-3.5 text-[#818cf8]" />
                   ) : (
-                    <AlignLeft className="w-3.5 h-3.5 text-[#10b981]" />
+                    <AlignLeft className="w-3.5 h-3.5 text-[#a855f7]" />
                   )}
                   <span className="truncate max-w-[140px]">{tab.title}</span>
                   <button
                     onClick={(e) => handleCloseTab(e, tab.id)}
-                    className="p-0.5 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#f4f4f5]"
+                    className="p-0.5 rounded hover:bg-[#28254c] text-[#94a3b8] hover:text-[#f8fafc]"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -595,14 +611,14 @@ export const App: React.FC = () => {
             })}
 
             {activeType === 'tasks' && (
-              <div className="h-7 px-3 rounded-lg flex items-center gap-2 text-[11px] bg-[#18181b] text-[#10b981] font-semibold border border-[#10b981]/40">
+              <div className="h-7 px-3 rounded-lg flex items-center gap-2 text-[11px] bg-[#16142e] text-[#c084fc] font-semibold border border-[#a855f7]/40">
                 <CheckSquare className="w-3.5 h-3.5" />
                 <span>Zadania & Checklist</span>
               </div>
             )}
 
             {activeType === 'graph' && (
-              <div className="h-7 px-3 rounded-lg flex items-center gap-2 text-[11px] bg-[#18181b] text-[#38bdf8] font-semibold border border-[#38bdf8]/40">
+              <div className="h-7 px-3 rounded-lg flex items-center gap-2 text-[11px] bg-[#16142e] text-[#818cf8] font-semibold border border-[#818cf8]/40">
                 <Share2 className="w-3.5 h-3.5" />
                 <span>Graf Wiedzy</span>
               </div>

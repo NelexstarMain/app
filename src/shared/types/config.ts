@@ -1,15 +1,23 @@
 export interface StickyPaletteColor {
   id: string
   name: string
-  bg: string
-  border: string
-  text: string
+  bg: string // hex code or tailwind
+  border: string // hex code or tailwind
+  text: string // hex code or tailwind
 }
 
 export interface AppConfig {
   version: string
   theme: {
-    accentColor: 'cyan' | 'emerald' | 'purple' | 'amber' | 'rose'
+    // System colors (Dark Navy, Dark Purple, Light Violet)
+    bgApp: string // e.g. '#070913' (Ciemny granat)
+    bgPanel: string // e.g. '#0f1123' (Ciemny granatowo-fioletowy)
+    bgCard: string // e.g. '#16142e' (Ciemny fiolet)
+    borderColor: string // e.g. '#28254c'
+    accentColor: string // e.g. '#a855f7' (Jasny fiolet)
+    accentGlow: string // e.g. '#c084fc' (Jasna lawenda)
+    iconColor: string // e.g. '#94a3b8'
+    iconActiveColor: string // e.g. '#c084fc' (Jasny fiolet)
     uiScale: number
     borderRadius: 'small' | 'medium' | 'large'
   }
@@ -42,9 +50,16 @@ export interface AppConfig {
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  version: '1.1.0',
+  version: '1.2.0',
   theme: {
-    accentColor: 'cyan',
+    bgApp: '#070913', // Ciemny granat
+    bgPanel: '#0f1123', // Ciemny granat/fiolet
+    bgCard: '#16142e', // Ciemny fiolet
+    borderColor: '#28254c', // Fioletowo-granatowa ramka
+    accentColor: '#a855f7', // Jasny fiolet
+    accentGlow: '#c084fc', // Jasny fiolet neon
+    iconColor: '#a5b4fc', // Jasny lawendowy szary
+    iconActiveColor: '#c084fc', // Jasny fiolet
     uiScale: 1.0,
     borderRadius: 'medium'
   },
@@ -58,21 +73,21 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     snapToGrid: false
   },
   stickyPalette: [
-    { id: 'vibrant_yellow', name: 'Żółty', bg: 'bg-[#fef08a]', border: 'border-[#fde047]', text: 'text-[#713f12]' },
-    { id: 'vibrant_pink', name: 'Różowy', bg: 'bg-[#fbcfe8]', border: 'border-[#f472b6]', text: 'text-[#831843]' },
-    { id: 'vibrant_purple', name: 'Fioletowy', bg: 'bg-[#e9d5ff]', border: 'border-[#c084fc]', text: 'text-[#581c87]' },
-    { id: 'vibrant_blue', name: 'Błękitny', bg: 'bg-[#bae6fd]', border: 'border-[#38bdf8]', text: 'text-[#0c4a6e]' },
-    { id: 'vibrant_green', name: 'Limonka / Szmaragd', bg: 'bg-[#bbf7d0]', border: 'border-[#4ade80]', text: 'text-[#14532d]' },
-    { id: 'vibrant_orange', name: 'Pomarańczowy', bg: 'bg-[#fed7aa]', border: 'border-[#fb923c]', text: 'text-[#7c2d12]' }
+    { id: 'sticky_violet', name: 'Jasny Fiolet', bg: '#25123e', border: '#a855f7', text: '#e9d5ff' },
+    { id: 'sticky_deep_purple', name: 'Ciemny Fiolet', bg: '#170c28', border: '#7c3aed', text: '#ddd6fe' },
+    { id: 'sticky_navy', name: 'Ciemny Granat', bg: '#0b112c', border: '#3b82f6', text: '#bfdbfe' },
+    { id: 'sticky_midnight', name: 'Nocny Indygo', bg: '#101438', border: '#6366f1', text: '#c7d2fe' },
+    { id: 'sticky_lavender', name: 'Lawenda', bg: '#2c1b4d', border: '#c084fc', text: '#f3e8ff' },
+    { id: 'sticky_electric', name: 'Elektryczny Fiolet', bg: '#1e0d36', border: '#9333ea', text: '#fae8ff' }
   ],
   penPalette: [
-    { label: 'Biały', value: '#f4f4f5' },
-    { label: 'Szary', value: '#a1a1aa' },
-    { label: 'Błękitny', value: '#38bdf8' },
-    { label: 'Szmaragdowy', value: '#10b981' },
-    { label: 'Bursztynowy', value: '#f59e0b' },
-    { label: 'Fioletowy', value: '#a855f7' },
-    { label: 'Różowy', value: '#fb7185' }
+    { label: 'Jasny Fiolet', value: '#c084fc' },
+    { label: 'Elektryczny Fiolet', value: '#a855f7' },
+    { label: 'Głęboki Fiolet', value: '#7c3aed' },
+    { label: 'Nocny Granat', value: '#38bdf8' },
+    { label: 'Błękit Indygo', value: '#818cf8' },
+    { label: 'Śnieżna Biel', value: '#f8fafc' },
+    { label: 'Popielaty Lawenda', value: '#94a3b8' }
   ],
   srs: {
     defaultStability: 1.2,
@@ -80,11 +95,11 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     maxReviewsPerSession: 50
   },
   graph: {
-    nodeColorNote: '#10b981',
-    nodeColorCanvas: '#38bdf8',
-    nodeColorAsset: '#c084fc',
-    nodeColorTag: '#f59e0b',
-    edgeColor: '#3f3f46',
+    nodeColorNote: '#a855f7', // Jasny fiolet
+    nodeColorCanvas: '#818cf8', // Granatowo-fioletowy
+    nodeColorAsset: '#c084fc', // Jasny lawendowy
+    nodeColorTag: '#6366f1', // Indygo
+    edgeColor: '#3b3874', // Ciemny fiolet
     repulsionForce: 750,
     springForce: 0.005,
     collisionRadius: 28

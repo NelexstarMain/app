@@ -25,6 +25,8 @@ import {
 } from 'lucide-react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
 
+import { AppConfig, DEFAULT_APP_CONFIG, StickyPaletteColor } from '../../../../shared/types/config'
+
 type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
 interface Props {
@@ -37,13 +39,19 @@ interface Props {
   onOpenCanvas?: (canvasPath: string) => void
 }
 
-const STICKY_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  yellow: { bg: 'bg-[#fef08a]', border: 'border-[#fde047]', text: 'text-[#713f12]' },
-  pink: { bg: 'bg-[#fbcfe8]', border: 'border-[#f472b6]', text: 'text-[#831843]' },
-  purple: { bg: 'bg-[#e9d5ff]', border: 'border-[#c084fc]', text: 'text-[#581c87]' },
-  blue: { bg: 'bg-[#bae6fd]', border: 'border-[#38bdf8]', text: 'text-[#0c4a6e]' },
-  green: { bg: 'bg-[#bbf7d0]', border: 'border-[#4ade80]', text: 'text-[#14532d]' },
-  orange: { bg: 'bg-[#fed7aa]', border: 'border-[#fb923c]', text: 'text-[#7c2d12]' }
+const DEFAULT_STICKY_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+  sticky_violet: { bg: '#25123e', border: '#a855f7', text: '#e9d5ff' },
+  sticky_deep_purple: { bg: '#170c28', border: '#7c3aed', text: '#ddd6fe' },
+  sticky_navy: { bg: '#0b112c', border: '#3b82f6', text: '#bfdbfe' },
+  sticky_midnight: { bg: '#101438', border: '#6366f1', text: '#c7d2fe' },
+  sticky_lavender: { bg: '#2c1b4d', border: '#c084fc', text: '#f3e8ff' },
+  sticky_electric: { bg: '#1e0d36', border: '#9333ea', text: '#fae8ff' },
+  yellow: { bg: '#25123e', border: '#a855f7', text: '#e9d5ff' },
+  purple: { bg: '#170c28', border: '#7c3aed', text: '#ddd6fe' },
+  blue: { bg: '#0b112c', border: '#3b82f6', text: '#bfdbfe' },
+  green: { bg: '#101438', border: '#6366f1', text: '#c7d2fe' },
+  pink: { bg: '#2c1b4d', border: '#c084fc', text: '#f3e8ff' },
+  orange: { bg: '#1e0d36', border: '#9333ea', text: '#fae8ff' }
 }
 
 export const CanvasViewport: React.FC<Props> = ({
@@ -57,8 +65,9 @@ export const CanvasViewport: React.FC<Props> = ({
 }) => {
   const [doc, setDoc] = useState<CanvasDocument>(document)
   const [activeTool, setActiveTool] = useState<WhiteboardTool>('select')
-  const [penColor, setPenColor] = useState('#f4f4f5')
+  const [penColor, setPenColor] = useState('#c084fc')
   const [penWidth, setPenWidth] = useState(3)
+  const [stickyPalette, setStickyPalette] = useState<StickyPaletteColor[]>(DEFAULT_APP_CONFIG.stickyPalette)
 
   // Infinite Viewport Pan & Zoom
   const [pan, setPan] = useState({ x: document.viewport?.x || 0, y: document.viewport?.y || 0 })
@@ -109,24 +118,30 @@ export const CanvasViewport: React.FC<Props> = ({
     setDoc(document)
   }, [document])
 
-  // Load workspace candidates for @ autocomplete
+  // Load workspace candidates and config
   useEffect(() => {
-    const loadCandidates = async () => {
+    const loadData = async () => {
       try {
-        const res = await window.electronAPI.invoke(IpcChannel.DB_GET_GRAPH_DATA, {})
-        if (res.nodes) {
-          const list: MentionCandidate[] = res.nodes.map((n: any) => ({
+        const [graphRes, configRes] = await Promise.all([
+          window.electronAPI.invoke(IpcChannel.DB_GET_GRAPH_DATA, {}),
+          window.electronAPI.invoke(IpcChannel.CONFIG_GET, undefined)
+        ])
+        if (graphRes?.nodes) {
+          const list: MentionCandidate[] = graphRes.nodes.map((n: any) => ({
             id: n.id,
             title: n.title,
             type: n.type === 'canvas' ? 'canvas' : n.type === 'visual_entity' ? 'asset' : 'note'
           }))
           setAllWorkspaceCandidates(list)
         }
+        if (configRes?.config?.stickyPalette) {
+          setStickyPalette(configRes.config.stickyPalette)
+        }
       } catch {
         // Ignore
       }
     }
-    loadCandidates()
+    loadData()
   }, [])
 
   const notifyChange = (updatedDoc: CanvasDocument) => {
@@ -1203,13 +1218,25 @@ export const CanvasViewport: React.FC<Props> = ({
                   </div>
                 )}
 
-                {/* 2. Vibrant Square Sticky Note (Proportional Auto-Scaling) */}
+                {/* 2. Vibrant Square Sticky Note (Proportional Auto-Scaling & RGB Live Styling) */}
                 {node.type === 'sticky_note' && (() => {
-                  const palette = STICKY_COLORS[node.data.color || 'yellow'] || STICKY_COLORS.yellow
+                  const preset = stickyPalette.find((p) => p.id === node.data.color) ||
+                    DEFAULT_STICKY_COLORS[node.data.color || 'sticky_violet'] ||
+                    DEFAULT_STICKY_COLORS.sticky_violet
+
+                  const bgStyle = preset.bg?.startsWith('#') ? preset.bg : '#25123e'
+                  const borderStyle = preset.border?.startsWith('#') ? preset.border : '#a855f7'
+                  const textStyle = preset.text?.startsWith('#') ? preset.text : '#e9d5ff'
+
                   return (
                     <div
                       onDoubleClick={() => setEditingNodeId(node.id)}
-                      className={`h-full w-full p-4 rounded-2xl border shadow-xl flex flex-col justify-between text-xs transition-all overflow-hidden break-words ${palette.bg} ${palette.border} ${palette.text}`}
+                      style={{
+                        backgroundColor: bgStyle,
+                        borderColor: borderStyle,
+                        color: textStyle
+                      }}
+                      className="h-full w-full p-4 rounded-2xl border-2 shadow-2xl flex flex-col justify-between text-xs transition-all overflow-hidden break-words backdrop-blur-md"
                     >
                       {editingNodeId === node.id ? (
                         <div
@@ -1273,21 +1300,23 @@ export const CanvasViewport: React.FC<Props> = ({
                           )}
 
                           <div className="flex items-center justify-between pt-1 border-t border-black/10">
-                            {/* Color Switcher */}
+                            {/* Color Switcher from dynamic stickyPalette */}
                             <div className="flex items-center gap-1">
-                              {Object.keys(STICKY_COLORS).map((cKey) => (
+                              {stickyPalette.map((p) => (
                                 <button
-                                  key={cKey}
+                                  key={p.id}
                                   type="button"
                                   onClick={() => {
                                     const updated = doc.nodes.map((n) =>
-                                      n.id === node.id ? { ...n, data: { ...n.data, color: cKey } } : n
+                                      n.id === node.id ? { ...n, data: { ...n.data, color: p.id } } : n
                                     )
                                     notifyChange({ ...doc, nodes: updated })
                                   }}
-                                  className={`w-4 h-4 rounded-full border border-black/20 ${STICKY_COLORS[cKey].bg} ${
-                                    node.data.color === cKey ? 'ring-2 ring-black/40 scale-110' : ''
+                                  style={{ backgroundColor: p.bg, borderColor: p.border }}
+                                  className={`w-4 h-4 rounded-full border-2 transition-transform ${
+                                    node.data.color === p.id ? 'ring-2 ring-white scale-125' : 'opacity-80 hover:opacity-100'
                                   }`}
+                                  title={p.name}
                                 />
                               ))}
                             </div>

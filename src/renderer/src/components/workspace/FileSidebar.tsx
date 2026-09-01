@@ -84,13 +84,13 @@ export const FileSidebar: React.FC<Props> = ({
   }
 
   const getFileIcon = (fileName: string) => {
-    if (fileName.includes('.canvas.')) {
-      return <LayoutGrid className="w-3.5 h-3.5 text-[#a855f7] shrink-0" />
+    if (fileName.includes('.canvas.') || fileName.endsWith('.canvas') || fileName.endsWith('.json')) {
+      return <LayoutGrid className="w-3.5 h-3.5 text-[#c084fc] shrink-0" />
     }
     if (fileName.endsWith('.md')) {
-      return <FileText className="w-3.5 h-3.5 text-[#38bdf8] shrink-0" />
+      return <FileText className="w-3.5 h-3.5 text-[#818cf8] shrink-0" />
     }
-    return <AlignLeft className="w-3.5 h-3.5 text-[#10b981] shrink-0" />
+    return <AlignLeft className="w-3.5 h-3.5 text-[#a5b4fc] shrink-0" />
   }
 
   const renderItem = (item: FileItem, depth = 0) => {
@@ -104,21 +104,19 @@ export const FileSidebar: React.FC<Props> = ({
           <div
             onMouseEnter={() => setHoveredItem(item.relativePath)}
             onMouseLeave={() => setHoveredItem(null)}
-            className="group flex items-center justify-between py-1 px-2 rounded-lg text-xs text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors cursor-pointer"
+            onClick={() => toggleDir(item.relativePath)}
+            className="group flex items-center justify-between py-1 px-2 rounded-lg text-xs text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e] transition-colors cursor-pointer"
             style={{ paddingLeft: `${depth * 12 + 6}px` }}
           >
-            <button
-              onClick={() => toggleDir(item.relativePath)}
-              className="flex items-center gap-2 flex-1 text-left truncate"
-            >
+            <div className="flex items-center gap-2 flex-1 text-left truncate">
               {isExpanded ? (
-                <ChevronDown className="w-3.5 h-3.5 text-[#71717a] shrink-0" />
+                <ChevronDown className="w-3.5 h-3.5 text-[#c084fc] shrink-0" />
               ) : (
-                <ChevronRight className="w-3.5 h-3.5 text-[#71717a] shrink-0" />
+                <ChevronRight className="w-3.5 h-3.5 text-[#64748b] shrink-0" />
               )}
-              <Folder className="w-4 h-4 text-[#f59e0b] shrink-0" />
+              <Folder className="w-4 h-4 text-[#a855f7] shrink-0 fill-[#a855f7]/15" />
               <span className="truncate font-medium text-[11px]">{item.name}</span>
-            </button>
+            </div>
 
             {hoveredItem === item.relativePath && (
               <div className="flex items-center gap-0.5">
@@ -128,7 +126,7 @@ export const FileSidebar: React.FC<Props> = ({
                     onRequestCreate('canvas', item.relativePath)
                   }}
                   title="Nowy plik w folderze"
-                  className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#38bdf8]"
+                  className="p-1 rounded hover:bg-[#28254c] text-[#94a3b8] hover:text-[#c084fc]"
                 >
                   <Plus className="w-3 h-3" />
                 </button>
@@ -141,7 +139,7 @@ export const FileSidebar: React.FC<Props> = ({
                       }
                     }}
                     title="Usuń folder"
-                    className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#fb7185]"
+                    className="p-1 rounded hover:bg-[#28254c] text-[#94a3b8] hover:text-[#fb7185]"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -162,23 +160,21 @@ export const FileSidebar: React.FC<Props> = ({
         key={item.relativePath}
         onMouseEnter={() => setHoveredItem(item.relativePath)}
         onMouseLeave={() => setHoveredItem(null)}
+        onClick={() => onOpenFile(item)}
         className={`group flex items-center justify-between py-1 px-2 rounded-lg text-xs transition-colors cursor-pointer ${
           isActive
-            ? 'bg-[#18181b] text-[#f4f4f5] font-semibold border-l-2 border-[#38bdf8]'
-            : 'text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#111114]'
+            ? 'bg-[#16142e] text-[#f8fafc] font-semibold border-l-2 border-[#a855f7] shadow-sm'
+            : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e]'
         }`}
         style={{ paddingLeft: `${depth * 12 + 18}px` }}
       >
-        <button
-          onClick={() => onOpenFile(item)}
-          className="flex items-center gap-2 flex-1 text-left truncate"
-        >
+        <div className="flex items-center gap-2 flex-1 text-left truncate">
           {getFileIcon(item.name)}
           <span className="truncate text-[11px]">{item.name.replace(/\.(canvas\.json|json|md|txt)$/, '')}</span>
-        </button>
+        </div>
 
         {hoveredItem === item.relativePath && (
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-0.5">
             {onRenamePath && (
               <button
                 onClick={(e) => {
@@ -189,7 +185,7 @@ export const FileSidebar: React.FC<Props> = ({
                   }
                 }}
                 title="Zmień nazwę"
-                className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#f4f4f5]"
+                className="p-1 rounded hover:bg-[#28254c] text-[#94a3b8] hover:text-[#f8fafc]"
               >
                 <Edit3 className="w-3 h-3" />
               </button>
@@ -203,7 +199,7 @@ export const FileSidebar: React.FC<Props> = ({
                   }
                 }}
                 title="Usuń plik"
-                className="p-1 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#fb7185]"
+                className="p-1 rounded hover:bg-[#28254c] text-[#94a3b8] hover:text-[#fb7185]"
               >
                 <Trash2 className="w-3 h-3" />
               </button>
@@ -215,74 +211,75 @@ export const FileSidebar: React.FC<Props> = ({
   }
 
   return (
-    <div className="h-full bg-[#09090b] border-r border-[#27272a] flex flex-col select-none text-xs">
-      {/* Workspace Header */}
-      <div className="h-10 px-3.5 border-b border-[#27272a] flex items-center justify-between text-[#f4f4f5]">
-        <div className="flex items-center gap-2 truncate">
-          <div className="w-5 h-5 rounded-md bg-[#18181b] border border-[#27272a] flex items-center justify-center text-[10px] font-bold text-[#38bdf8]">
-            C
-          </div>
-          <span className="font-semibold text-xs truncate" title={workspacePath}>
-            {cleanWorkspaceName(workspacePath)}
-          </span>
+    <div className="h-full w-full bg-[#070913] border-r border-[#28254c] flex flex-col select-none text-xs">
+      {/* Header */}
+      <div className="h-10 px-3 border-b border-[#28254c] flex items-center justify-between shrink-0 bg-[#070913]">
+        <div className="flex items-center gap-2 font-bold text-xs text-[#f8fafc]">
+          <Folder className="w-4 h-4 text-[#a855f7]" />
+          <span className="truncate max-w-[130px]">{cleanWorkspaceName(workspacePath)}</span>
         </div>
 
         <div className="flex items-center gap-1">
           <button
-            onClick={() => onRequestCreate('canvas', 'canvases')}
-            title="Nowy plik lub folder"
-            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-[#18181b] hover:bg-[#27272a] text-[11px] text-[#38bdf8] font-semibold border border-[#38bdf8]/40 transition-colors shadow-sm"
+            onClick={() => onRequestCreate('md')}
+            title="Nowa notatka (Ctrl+N)"
+            className="p-1 rounded-md text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e] transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Dodaj</span>
           </button>
-
+          <button
+            onClick={() => onRequestCreate('folder')}
+            title="Nowy folder"
+            className="p-1 rounded-md text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e] transition-colors"
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={handleColdReindex}
             title="Odśwież i reindeksuj (Cold Reindex)"
-            className="p-1 rounded-md text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors"
+            className="p-1 rounded-md text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e] transition-colors"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isReindexing ? 'animate-spin text-[#10b981]' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isReindexing ? 'animate-spin text-[#c084fc]' : ''}`} />
           </button>
         </div>
       </div>
 
       {/* Quick Navigation Modes */}
-      <div className="p-2 space-y-1 border-b border-[#27272a]">
+      <div className="p-2 space-y-1 border-b border-[#28254c]">
         <button
           onClick={onOpenTasks}
-          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e] transition-colors text-left font-medium"
         >
-          <CheckSquare className="w-4 h-4 text-[#38bdf8]" />
+          <CheckSquare className="w-4 h-4 text-[#c084fc]" />
           <span>Zadania & Checklist</span>
         </button>
         <button
           onClick={onOpenGraph}
-          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e] transition-colors text-left font-medium"
         >
-          <Share2 className="w-4 h-4 text-[#a855f7]" />
+          <Share2 className="w-4 h-4 text-[#818cf8]" />
           <span>Graf Wiedzy</span>
         </button>
         <button
           onClick={onOpenReview}
-          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e] transition-colors text-left font-medium"
         >
-          <BookOpen className="w-4 h-4 text-[#f59e0b]" />
+          <BookOpen className="w-4 h-4 text-[#a855f7]" />
           <span>Fiszki SRS (#review)</span>
         </button>
         <button
           onClick={onOpenAnalytics}
-          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e] transition-colors text-left font-medium"
         >
-          <BarChart2 className="w-4 h-4 text-[#10b981]" />
+          <BarChart2 className="w-4 h-4 text-[#c084fc]" />
           <span>Analityka Skupienia</span>
         </button>
         {onOpenConfig && (
           <button
             onClick={onOpenConfig}
-            className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
+            className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e] transition-colors text-left font-medium"
           >
-            <Settings className="w-4 h-4 text-[#38bdf8]" />
+            <Settings className="w-4 h-4 text-[#a855f7]" />
             <span>Ustawienia aplikacji</span>
           </button>
         )}
@@ -291,25 +288,25 @@ export const FileSidebar: React.FC<Props> = ({
       {/* File Tree Section */}
       <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
         <div className="flex items-center justify-between px-2 py-1 mb-1">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[#52525b]">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748b]">
             Pliki & Notatki
           </span>
-          <span className="text-[10px] text-[#71717a] font-mono">.canvas / .md / .txt</span>
+          <span className="text-[10px] text-[#94a3b8] font-mono">.canvas / .md / .txt</span>
         </div>
         {fileTree.map((item) => renderItem(item))}
       </div>
 
       {/* Footer Info */}
-      <div className="h-8 px-3 border-t border-[#27272a] flex items-center justify-between text-[10px] text-[#71717a] bg-[#09090b]">
+      <div className="h-8 px-3 border-t border-[#28254c] flex items-center justify-between text-[10px] text-[#94a3b8] bg-[#070913]">
         <button
           onClick={handleColdReindex}
           disabled={isReindexing}
-          className="flex items-center gap-1.5 hover:text-[#f4f4f5]"
+          className="flex items-center gap-1.5 hover:text-[#f8fafc]"
         >
-          <RefreshCw className={`w-3 h-3 ${isReindexing ? 'animate-spin text-[#10b981]' : ''}`} />
+          <RefreshCw className={`w-3 h-3 ${isReindexing ? 'animate-spin text-[#c084fc]' : ''}`} />
           <span>{isReindexing ? 'Indeksowanie...' : 'Cold Reindex'}</span>
         </button>
-        <span className="font-mono text-[#52525b]">FTS5 Index</span>
+        <span className="font-mono text-[#64748b]">FTS5 Index</span>
       </div>
     </div>
   )
