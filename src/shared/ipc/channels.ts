@@ -37,6 +37,11 @@ export enum IpcChannel {
   RECOVERY_CHECK_SNAPSHOT = 'recovery:check-snapshot',
   RECOVERY_CLEAR_SNAPSHOT = 'recovery:clear-snapshot',
 
+  // Configuration & Settings
+  CONFIG_GET = 'config:get',
+  CONFIG_UPDATE = 'config:update',
+  CONFIG_RESET = 'config:reset',
+
   // App Utilities
   APP_GET_VERSION = 'app:get-version',
   SHELL_OPEN_EXTERNAL = 'shell:open-external'

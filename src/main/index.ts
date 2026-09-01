@@ -5,6 +5,7 @@ import { FileSystemService } from './services/fileSystemService'
 import { DatabaseService } from './services/databaseService'
 import { AssetService } from './services/assetService'
 import { RecoveryService } from './services/recoveryService'
+import { ConfigService } from './services/configService'
 import { registerIpcHandlers } from './ipc/registerHandlers'
 
 let mainWindow: BrowserWindow | null = null
@@ -13,6 +14,7 @@ const fsService = new FileSystemService()
 const dbService = new DatabaseService()
 const assetService = new AssetService(dbService)
 const recoveryService = new RecoveryService()
+const configService = new ConfigService()
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -51,7 +53,7 @@ function createWindow(): void {
   })
 
   // Register IPC dispatchers
-  registerIpcHandlers(mainWindow, fsService, dbService, assetService, recoveryService)
+  registerIpcHandlers(mainWindow, fsService, dbService, assetService, recoveryService, configService)
 
   // In development, load dev server URL; in production load local index.html
   if (process.env['ELECTRON_RENDERER_URL']) {

@@ -165,6 +165,20 @@ export interface IpcContracts {
     response: { success: boolean; error?: string }
   }
 
+  // Configuration & Settings
+  [IpcChannel.CONFIG_GET]: {
+    request: void
+    response: { config: any; rawJson: string; error?: string }
+  }
+  [IpcChannel.CONFIG_UPDATE]: {
+    request: { configJson: string }
+    response: { success: boolean; config?: any; error?: string }
+  }
+  [IpcChannel.CONFIG_RESET]: {
+    request: void
+    response: { success: boolean; config: any; rawJson: string; error?: string }
+  }
+
   // App Utilities
   [IpcChannel.APP_GET_VERSION]: {
     request: void

@@ -14,7 +14,8 @@ import {
   Edit3,
   FileText,
   AlignLeft,
-  CheckSquare
+  CheckSquare,
+  Settings
 } from 'lucide-react'
 import { FileItem } from '../../../../shared/types/workspace'
 import { IpcChannel } from '../../../../shared/ipc/channels'
@@ -29,6 +30,7 @@ interface Props {
   onOpenTasks: () => void
   onOpenReview: () => void
   onOpenAnalytics: () => void
+  onOpenConfig?: () => void
   onRefreshFiles: () => void
   onRequestCreate: (defaultType?: FileCreationType, folder?: string) => void
   onDeletePath?: (relativePath: string) => void
@@ -44,6 +46,7 @@ export const FileSidebar: React.FC<Props> = ({
   onOpenTasks,
   onOpenReview,
   onOpenAnalytics,
+  onOpenConfig,
   onRefreshFiles,
   onRequestCreate,
   onDeletePath,
@@ -274,6 +277,15 @@ export const FileSidebar: React.FC<Props> = ({
           <BarChart2 className="w-4 h-4 text-[#10b981]" />
           <span>Analityka Skupienia</span>
         </button>
+        {onOpenConfig && (
+          <button
+            onClick={onOpenConfig}
+            className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
+          >
+            <Settings className="w-4 h-4 text-[#38bdf8]" />
+            <span>Konfiguracja (config.json)</span>
+          </button>
+        )}
       </div>
 
       {/* File Tree Section */}

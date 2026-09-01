@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { CanvasDocument, CanvasNode, CanvasEdge, EdgeSide } from '../../../../shared/types/canvas'
+import { CanvasDocument, CanvasNode, CanvasEdge, EdgeSide, EdgeStyle } from '../../../../shared/types/canvas'
 import { WhiteboardToolbar, WhiteboardTool } from './WhiteboardToolbar'
+import { ImageNameModal } from './ImageNameModal'
+import { ArrowEditModal, ArrowConfigData } from './ArrowEditModal'
+import { MentionAutocomplete, MentionCandidate } from './MentionAutocomplete'
 import {
   ZoomIn,
   ZoomOut,
@@ -10,14 +13,19 @@ import {
   Eye,
   Edit2,
   Trash2,
-  Link2,
+  AtSign,
   FileText,
   Layers,
   ChevronUp,
   ChevronDown,
-  Sparkles
+  Sparkles,
+  Bold,
+  Italic,
+  Type
 } from 'lucide-react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
+
+type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
 interface Props {
   document: CanvasDocument
@@ -27,6 +35,15 @@ interface Props {
   onNodeAdded?: (nodeId: string) => void
   onOpenNote?: (notePath: string) => void
   onOpenCanvas?: (canvasPath: string) => void
+}
+
+const STICKY_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+  yellow: { bg: 'bg-[#fef08a]', border: 'border-[#fde047]', text: 'text-[#713f12]' },
+  pink: { bg: 'bg-[#fbcfe8]', border: 'border-[#f472b6]', text: 'text-[#831843]' },
+  purple: { bg: 'bg-[#e9d5ff]', border: 'border-[#c084fc]', text: 'text-[#581c87]' },
+  blue: { bg: 'bg-[#bae6fd]', border: 'border-[#38bdf8]', text: 'text-[#0c4a6e]' },
+  green: { bg: 'bg-[#bbf7d0]', border: 'border-[#4ade80]', text: 'text-[#14532d]' },
+  orange: { bg: 'bg-[#fed7aa]', border: 'border-[#fb923c]', text: 'text-[#7c2d12]' }
 }
 
 export const CanvasViewport: React.FC<Props> = ({
@@ -53,8 +70,12 @@ export const CanvasViewport: React.FC<Props> = ({
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  
+  // 8-Directional Resizing
   const [resizingNodeId, setResizingNodeId] = useState<string | null>(null)
-  const [resizeStart, setResizeStart] = useState({ width: 0, height: 0, mouseX: 0, mouseY: 0 })
+  const [resizeHandle, setResizeHandle] = useState<ResizeHandle | null>(null)
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0, mouseX: 0, mouseY: 0 })
+  
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null)
 
@@ -62,9 +83,22 @@ export const CanvasViewport: React.FC<Props> = ({
   const [currentStroke, setCurrentStroke] = useState<Array<{ x: number; y: number }>>([])
   const [isDrawing, setIsDrawing] = useState(false)
 
-  // Arrow connector
-  const [connectingFrom, setConnectingFrom] = useState<{ nodeId: string; side: EdgeSide; isSoft?: boolean } | null>(null)
+  // Arrow connector (drag from node to node)
+  const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null)
   const [connectingMousePos, setConnectingMousePos] = useState<{ x: number; y: number } | null>(null)
+
+  // Arrow Edit Modal
+  const [editingEdge, setEditingEdge] = useState<CanvasEdge | null>(null)
+
+  // Image Naming Modal
+  const [imageModalOpen, setImageModalOpen] = useState(false)
+  const [pendingImageData, setPendingImageData] = useState<{ base64: string; fileName: string } | null>(null)
+
+  // @ Mention Autocomplete Popover
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [mentionTargetNodeId, setMentionTargetNodeId] = useState<string | null>(null)
+  const [allWorkspaceCandidates, setAllWorkspaceCandidates] = useState<MentionCandidate[]>([])
 
   // Related Canvases Drawer
   const [relatedDrawerOpen, setRelatedDrawerOpen] = useState(false)
@@ -75,12 +109,32 @@ export const CanvasViewport: React.FC<Props> = ({
     setDoc(document)
   }, [document])
 
+  // Load workspace candidates for @ autocomplete
+  useEffect(() => {
+    const loadCandidates = async () => {
+      try {
+        const res = await window.electronAPI.invoke(IpcChannel.DB_GET_GRAPH_DATA, {})
+        if (res.nodes) {
+          const list: MentionCandidate[] = res.nodes.map((n: any) => ({
+            id: n.id,
+            title: n.title,
+            type: n.type === 'canvas' ? 'canvas' : n.type === 'visual_entity' ? 'asset' : 'note'
+          }))
+          setAllWorkspaceCandidates(list)
+        }
+      } catch {
+        // Ignore
+      }
+    }
+    loadCandidates()
+  }, [])
+
   const notifyChange = (updatedDoc: CanvasDocument) => {
     setDoc(updatedDoc)
     onDocumentChanged(updatedDoc)
   }
 
-  // Paste Support (Images & Text)
+  // Paste Support (with Image Name Modal)
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
       const activeEl = window.document.activeElement
@@ -98,32 +152,8 @@ export const CanvasViewport: React.FC<Props> = ({
           const reader = new FileReader()
           reader.onload = async (event) => {
             const base64 = event.target?.result as string
-            const res = await window.electronAPI.invoke(IpcChannel.ASSET_INGEST, {
-              fileName: `pasted_${Date.now()}.png`,
-              title: `Obraz ${new Date().toLocaleTimeString()}`,
-              base64Data: base64,
-              archetype: 'artwork'
-            })
-
-            if (res.entity) {
-              const newNode: CanvasNode = {
-                id: `node_img_${Date.now()}`,
-                type: 'image_node',
-                x: Math.round((-pan.x + window.innerWidth / 2) / zoom),
-                y: Math.round((-pan.y + window.innerHeight / 2) / zoom),
-                width: 280,
-                height: 220,
-                data: {
-                  src: base64,
-                  title: res.entity.title,
-                  entity_id: res.entity.entity_id,
-                  linked_note_id: res.entity.linked_note_id
-                }
-              }
-              const updatedDoc = { ...doc, nodes: [...doc.nodes, newNode] }
-              notifyChange(updatedDoc)
-              if (onNodeAdded) onNodeAdded(newNode.id)
-            }
+            setPendingImageData({ base64, fileName: `Obraz_${Date.now()}.png` })
+            setImageModalOpen(true)
           }
           reader.readAsDataURL(file)
           break
@@ -191,22 +221,66 @@ export const CanvasViewport: React.FC<Props> = ({
     }
   }
 
-  // Jump to Linked Node [hasło]
-  const handleJumpToLinkedNode = (keyword: string) => {
-    const cleanKey = keyword.toLowerCase().trim()
-    const target = doc.nodes.find((n) => {
+  // Jump to Node via @ Link
+  const handleJumpToNode = (targetTitleOrId: string) => {
+    const clean = targetTitleOrId.toLowerCase().trim()
+    
+    // Check current canvas nodes
+    const localMatch = doc.nodes.find((n) => {
       const t = (n.data?.title || n.data?.label || n.data?.text || n.data?.question || '').toLowerCase()
-      return t.includes(cleanKey)
+      return t.includes(clean) || n.id.toLowerCase() === clean
     })
 
-    if (target) {
-      const targetPanX = -target.x * zoom + (window.innerWidth / 2) - ((target.width * zoom) / 2)
-      const targetPanY = -target.y * zoom + (window.innerHeight / 2) - ((target.height * zoom) / 2)
+    if (localMatch) {
+      const targetPanX = -localMatch.x * zoom + window.innerWidth / 2 - (localMatch.width * zoom) / 2
+      const targetPanY = -localMatch.y * zoom + window.innerHeight / 2 - (localMatch.height * zoom) / 2
       setPan({ x: targetPanX, y: targetPanY })
-      setHighlightedNodeId(target.id)
-      setSelectedNodeIds([target.id])
-      setTimeout(() => setHighlightedNodeId(null), 2000)
+      setHighlightedNodeId(localMatch.id)
+      setSelectedNodeIds([localMatch.id])
+      setTimeout(() => setHighlightedNodeId(null), 2500)
+      return
     }
+
+    // Check other canvas / files
+    const external = allWorkspaceCandidates.find((c) => c.title.toLowerCase().includes(clean))
+    if (external) {
+      if (external.type === 'canvas' && onOpenCanvas) {
+        onOpenCanvas(external.id)
+      } else if (external.type === 'note' && onOpenNote) {
+        onOpenNote(external.id)
+      }
+    }
+  }
+
+  // Smart Nearest-Edge Routing (No static anchor dots)
+  const calculateSmartEdge = (n1: CanvasNode, n2: CanvasNode) => {
+    const c1 = { x: n1.x + n1.width / 2, y: n1.y + n1.height / 2 }
+    const c2 = { x: n2.x + n2.width / 2, y: n2.y + n2.height / 2 }
+    const dx = c2.x - c1.x
+    const dy = c2.y - c1.y
+
+    let p1 = { x: c1.x, y: c1.y }
+    let p2 = { x: c2.x, y: c2.y }
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+      if (dx > 0) {
+        p1 = { x: n1.x + n1.width, y: c1.y }
+        p2 = { x: n2.x, y: c2.y }
+      } else {
+        p1 = { x: n1.x, y: c1.y }
+        p2 = { x: n2.x + n2.width, y: c2.y }
+      }
+    } else {
+      if (dy > 0) {
+        p1 = { x: c1.x, y: n1.y + n1.height }
+        p2 = { x: c2.x, y: n2.y }
+      } else {
+        p1 = { x: c1.x, y: n1.y }
+        p2 = { x: c2.x, y: n2.y + n2.height }
+      }
+    }
+
+    return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y }
   }
 
   // Mouse Down
@@ -236,11 +310,11 @@ export const CanvasViewport: React.FC<Props> = ({
           type: 'text_card',
           x: Math.round(world.x),
           y: Math.round(world.y),
-          width: 280,
-          height: 180,
+          width: 260,
+          height: 140,
           data: {
             title: 'Notatka',
-            markdown: 'Zacznij pisać treść notatki... Użyj [hasło], aby podlinkować inny box!'
+            markdown: 'Wpisz treść notatki... (użyj @nazwa do podlinkowania)'
           }
         }
         notifyChange({ ...doc, nodes: [...doc.nodes, newNode] })
@@ -261,7 +335,7 @@ export const CanvasViewport: React.FC<Props> = ({
           height: 200,
           data: {
             text: 'Wpisz myśl...',
-            color: 'sand'
+            color: 'yellow'
           }
         }
         notifyChange({ ...doc, nodes: [...doc.nodes, newNode] })
@@ -284,7 +358,7 @@ export const CanvasViewport: React.FC<Props> = ({
             shapeType: activeTool,
             label: activeTool === 'rectangle' ? 'Obszar / Sekcja' : 'Pojęcie',
             text: '',
-            fillColor: 'rgba(26, 38, 31, 0.6)',
+            fillColor: 'rgba(24, 24, 27, 0.7)',
             borderColor: '#38bdf8'
           }
         }
@@ -320,9 +394,14 @@ export const CanvasViewport: React.FC<Props> = ({
       }
 
       // Default Canvas Background Click
-      if (e.target === containerRef.current || (e.target as HTMLElement).tagName === 'svg' || (e.target as HTMLElement).tagName === 'g') {
+      if (
+        e.target === containerRef.current ||
+        (e.target as HTMLElement).tagName === 'svg' ||
+        (e.target as HTMLElement).tagName === 'g'
+      ) {
         setSelectedNodeIds([])
         setEditingNodeId(null)
+        setMentionOpen(false)
         setIsPanning(true)
         setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
       }
@@ -339,19 +418,40 @@ export const CanvasViewport: React.FC<Props> = ({
     } else if (isDrawing && activeTool === 'pen') {
       setCurrentStroke((prev) => [...prev, { x: world.x, y: world.y }])
       onActivity()
-    } else if (resizingNodeId) {
+    } else if (resizingNodeId && resizeHandle) {
       const deltaX = (e.clientX - resizeStart.mouseX) / zoom
       const deltaY = (e.clientY - resizeStart.mouseY) / zoom
+
       const updated = doc.nodes.map((n) => {
-        if (n.id === resizingNodeId) {
-          return {
-            ...n,
-            width: Math.max(120, Math.round(resizeStart.width + deltaX)),
-            height: Math.max(80, Math.round(resizeStart.height + deltaY))
-          }
+        if (n.id !== resizingNodeId) return n
+
+        let newX = resizeStart.x
+        let newY = resizeStart.y
+        let newW = resizeStart.width
+        let newH = resizeStart.height
+
+        if (resizeHandle.includes('e')) newW = Math.max(120, resizeStart.width + deltaX)
+        if (resizeHandle.includes('s')) newH = Math.max(80, resizeStart.height + deltaY)
+        if (resizeHandle.includes('w')) {
+          const clampedDelta = Math.min(deltaX, resizeStart.width - 120)
+          newX = resizeStart.x + clampedDelta
+          newW = resizeStart.width - clampedDelta
         }
-        return n
+        if (resizeHandle.includes('n')) {
+          const clampedDelta = Math.min(deltaY, resizeStart.height - 80)
+          newY = resizeStart.y + clampedDelta
+          newH = resizeStart.height - clampedDelta
+        }
+
+        return {
+          ...n,
+          x: Math.round(newX),
+          y: Math.round(newY),
+          width: Math.round(newW),
+          height: Math.round(newH)
+        }
       })
+
       setDoc({ ...doc, nodes: updated })
       onActivity()
     } else if (draggedNodeId) {
@@ -369,25 +469,26 @@ export const CanvasViewport: React.FC<Props> = ({
       onActivity()
     }
 
-    if (connectingFrom) {
+    if (connectingFromNodeId) {
       setConnectingMousePos(world)
     }
   }
 
-  // Global Mouse Up Listener to prevent stuck drag/draw
+  // Global Mouse Up Listener
   useEffect(() => {
     const handleGlobalMouseUp = () => {
       if (isPanning) setIsPanning(false)
       if (resizingNodeId) {
         setResizingNodeId(null)
+        setResizeHandle(null)
         onDocumentChanged(doc)
       }
       if (draggedNodeId) {
         setDraggedNodeId(null)
         onDocumentChanged(doc)
       }
-      if (connectingFrom) {
-        setConnectingFrom(null)
+      if (connectingFromNodeId) {
+        setConnectingFromNodeId(null)
         setConnectingMousePos(null)
       }
       if (isDrawing) {
@@ -414,14 +515,11 @@ export const CanvasViewport: React.FC<Props> = ({
 
     window.addEventListener('mouseup', handleGlobalMouseUp)
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
-  }, [doc, isPanning, resizingNodeId, draggedNodeId, connectingFrom, isDrawing, currentStroke, penColor, penWidth])
+  }, [doc, isPanning, resizingNodeId, draggedNodeId, connectingFromNodeId, isDrawing, currentStroke, penColor, penWidth])
 
   // Mouse Up
   const handleMouseUp = () => {
-    if (isPanning) {
-      setIsPanning(false)
-    }
-
+    if (isPanning) setIsPanning(false)
     if (isDrawing) {
       if (currentStroke.length > 1) {
         const newStrokeNode: CanvasNode = {
@@ -442,19 +540,17 @@ export const CanvasViewport: React.FC<Props> = ({
       setCurrentStroke([])
       setIsDrawing(false)
     }
-
     if (resizingNodeId) {
       setResizingNodeId(null)
+      setResizeHandle(null)
       onDocumentChanged(doc)
     }
-
     if (draggedNodeId) {
       setDraggedNodeId(null)
       onDocumentChanged(doc)
     }
-
-    if (connectingFrom) {
-      setConnectingFrom(null)
+    if (connectingFromNodeId) {
+      setConnectingFromNodeId(null)
       setConnectingMousePos(null)
     }
   }
@@ -468,7 +564,7 @@ export const CanvasViewport: React.FC<Props> = ({
     setZoom(newZoom)
   }
 
-  // Adding Image
+  // Adding Image (with required naming modal)
   const handleAddImage = () => {
     const input = window.document.createElement('input')
     input.type = 'file'
@@ -479,83 +575,84 @@ export const CanvasViewport: React.FC<Props> = ({
       const reader = new FileReader()
       reader.onload = async (e) => {
         const base64 = e.target?.result as string
-        const res = await window.electronAPI.invoke(IpcChannel.ASSET_INGEST, {
-          fileName: file.name,
-          title: file.name.replace(/\.[^/.]+$/, ''),
-          base64Data: base64,
-          archetype: 'artwork'
-        })
-        if (res.entity) {
-          const newNode: CanvasNode = {
-            id: `node_img_${Date.now()}`,
-            type: 'image_node',
-            x: Math.round((-pan.x + window.innerWidth / 2) / zoom),
-            y: Math.round((-pan.y + window.innerHeight / 2) / zoom),
-            width: 280,
-            height: 220,
-            data: {
-              src: base64,
-              title: res.entity.title,
-              entity_id: res.entity.entity_id,
-              linked_note_id: res.entity.linked_note_id
-            }
-          }
-          notifyChange({ ...doc, nodes: [...doc.nodes, newNode] })
-          if (onNodeAdded) onNodeAdded(newNode.id)
-        }
+        setPendingImageData({ base64, fileName: file.name.replace(/\.[^/.]+$/, '') })
+        setImageModalOpen(true)
       }
       reader.readAsDataURL(file)
     }
     input.click()
   }
 
-  // Anchor Handlers
-  const handleAnchorMouseDown = (e: React.MouseEvent, nodeId: string, side: EdgeSide) => {
-    e.stopPropagation()
-    const world = toWorldCoords(e.clientX, e.clientY)
-    const isSoft = activeTool === 'soft_link'
-    setConnectingFrom({ nodeId, side, isSoft })
-    setConnectingMousePos(world)
+  const handleConfirmImage = async (name: string) => {
+    if (!pendingImageData) return
+    const res = await window.electronAPI.invoke(IpcChannel.ASSET_INGEST, {
+      fileName: `${name}.png`,
+      title: name,
+      base64Data: pendingImageData.base64,
+      archetype: 'artwork'
+    })
+
+    if (res.entity) {
+      const newNode: CanvasNode = {
+        id: `node_img_${Date.now()}`,
+        type: 'image_node',
+        x: Math.round((-pan.x + window.innerWidth / 2) / zoom),
+        y: Math.round((-pan.y + window.innerHeight / 2) / zoom),
+        width: 280,
+        height: 220,
+        data: {
+          src: pendingImageData.base64,
+          title: name,
+          entity_id: res.entity.entity_id,
+          linked_note_id: res.entity.linked_note_id
+        }
+      }
+      notifyChange({ ...doc, nodes: [...doc.nodes, newNode] })
+      if (onNodeAdded) onNodeAdded(newNode.id)
+    }
+    setPendingImageData(null)
   }
 
-  const handleAnchorMouseUp = (e: React.MouseEvent, targetNodeId: string, targetSide: EdgeSide) => {
-    e.stopPropagation()
-    if (connectingFrom && connectingFrom.nodeId !== targetNodeId) {
-      const isSoft = connectingFrom.isSoft || activeTool === 'soft_link'
+  // Node connection handler (Smart Routing)
+  const handleNodeConnectEnd = (targetNodeId: string) => {
+    if (connectingFromNodeId && connectingFromNodeId !== targetNodeId) {
+      const isSoft = activeTool === 'soft_link'
       const newEdge: CanvasEdge = {
         id: `edge_${Date.now()}`,
-        fromNode: connectingFrom.nodeId,
-        fromSide: connectingFrom.side,
+        fromNode: connectingFromNodeId,
         toNode: targetNodeId,
-        toSide: targetSide,
         label: isSoft ? 'POWIĄZANIE' : 'RELACJA',
         color: isSoft ? '#71717a' : '#38bdf8',
-        style: isSoft ? 'soft_link' : 'solid'
+        style: isSoft ? 'soft_link' : 'solid',
+        bidirectional: false
       }
       notifyChange({ ...doc, edges: [...doc.edges, newEdge] })
     }
-    setConnectingFrom(null)
+    setConnectingFromNodeId(null)
     setConnectingMousePos(null)
   }
 
-  const renderAnchors = (node: CanvasNode) => {
-    const anchors: Array<{ side: EdgeSide; x: number; y: number }> = [
-      { side: 'top', x: node.width / 2, y: 0 },
-      { side: 'right', x: node.width, y: node.height / 2 },
-      { side: 'bottom', x: node.width / 2, y: node.height },
-      { side: 'left', x: 0, y: node.height / 2 }
-    ]
+  // Arrow property update from modal
+  const handleUpdateEdge = (config: ArrowConfigData) => {
+    if (!editingEdge) return
+    const updated = doc.edges.map((e) =>
+      e.id === editingEdge.id
+        ? {
+            ...e,
+            label: config.label,
+            color: config.color,
+            style: config.style,
+            bidirectional: config.bidirectional
+          }
+        : e
+    )
+    notifyChange({ ...doc, edges: updated })
+    setEditingEdge(null)
+  }
 
-    return anchors.map((a) => (
-      <div
-        key={a.side}
-        style={{ transform: `translate(${a.x - 5}px, ${a.y - 5}px)` }}
-        onMouseDown={(e) => handleAnchorMouseDown(e, node.id, a.side)}
-        onMouseUp={(e) => handleAnchorMouseUp(e, node.id, a.side)}
-        className="absolute w-2.5 h-2.5 rounded-full bg-[#38bdf8] border border-white hover:scale-150 cursor-crosshair z-30 transition-transform opacity-70 hover:opacity-100 shadow-md"
-        title={`Połącz (${a.side})`}
-      />
-    ))
+  const handleDeleteEdge = (edgeId: string) => {
+    notifyChange({ ...doc, edges: doc.edges.filter((e) => e.id !== edgeId) })
+    setEditingEdge(null)
   }
 
   const renderStrokePath = (points: Array<{ x: number; y: number }>) => {
@@ -567,73 +664,80 @@ export const CanvasViewport: React.FC<Props> = ({
     return d
   }
 
-  const getEdgeCoordinates = (edge: CanvasEdge) => {
-    const fromNode = doc.nodes.find((n) => n.id === edge.fromNode)
-    const toNode = doc.nodes.find((n) => n.id === edge.toNode)
-    if (!fromNode || !toNode) return null
-
-    const getSidePos = (node: CanvasNode, side: EdgeSide) => {
-      if (side === 'top') return { x: node.x + node.width / 2, y: node.y }
-      if (side === 'right') return { x: node.x + node.width, y: node.y + node.height / 2 }
-      if (side === 'bottom') return { x: node.x + node.width / 2, y: node.y + node.height }
-      return { x: node.x, y: node.y + node.height / 2 }
-    }
-
-    const p1 = getSidePos(fromNode, edge.fromSide)
-    const p2 = getSidePos(toNode, edge.toSide)
-    return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y }
-  }
-
-  // Refined Muted Pastel Colors
-  const getStickyBgClass = (color: string) => {
-    switch (color) {
-      case 'sage':
-      case 'green':
-        return 'bg-[#1a261f] border-[#2d4a37] text-[#c2e4cf]'
-      case 'rose':
-      case 'pink':
-        return 'bg-[#2a1b22] border-[#52303f] text-[#f2cad9]'
-      case 'lavender':
-      case 'purple':
-        return 'bg-[#201d2d] border-[#3e3659] text-[#ded7f7]'
-      case 'sand':
-      case 'yellow':
-        return 'bg-[#26231a] border-[#4a4128] text-[#f5ebd2]'
-      case 'ocean':
-      case 'blue':
-        return 'bg-[#18232e] border-[#293f54] text-[#cae2f7]'
-      default:
-        return 'bg-[#26231a] border-[#4a4128] text-[#f5ebd2]'
-    }
-  }
-
-  // Render text with interactive [hasło] jump links
+  // Render text with interactive @mention jump links
   const renderLinkedText = (text: string) => {
     if (!text) return null
-    const parts = text.split(/(\[\[?[^\]]+\]?\])/g)
+    // Match @[Title] or @Word
+    const parts = text.split(/(@(?:\[[^\]]+\]|[a-zA-Z0-9_\-\u00C0-\u024F]+))/g)
 
     return parts.map((part, idx) => {
-      const match = /^\[\[?([^\]]+)\]?\]$/.exec(part)
-      if (match) {
-        const keyword = match[1]
+      if (part.startsWith('@')) {
+        const rawName = part.startsWith('@[') ? part.slice(2, -1) : part.slice(1)
         return (
           <span
             key={idx}
             onClick={(e) => {
               e.stopPropagation()
-              handleJumpToLinkedNode(keyword)
+              handleJumpToNode(rawName)
             }}
-            className="inline-flex items-center gap-0.5 px-1 py-0.2 mx-0.5 rounded bg-[#38bdf8]/20 hover:bg-[#38bdf8]/35 text-[#38bdf8] border border-[#38bdf8]/40 cursor-pointer font-semibold transition-colors"
-            title={`Przejdź do: ${keyword}`}
+            className="inline-flex items-center gap-0.5 px-1 py-0.5 mx-0.5 rounded-md bg-[#38bdf8]/20 hover:bg-[#38bdf8]/35 text-[#38bdf8] border border-[#38bdf8]/40 cursor-pointer font-semibold transition-colors shadow-sm"
+            title={`Przejdź do: ${rawName}`}
           >
-            <Link2 className="w-2.5 h-2.5" />
-            <span>{keyword}</span>
+            <AtSign className="w-2.5 h-2.5" />
+            <span>{rawName}</span>
           </span>
         )
       }
       return <span key={idx}>{part}</span>
     })
   }
+
+  // 8-Directional Resizing Handles
+  const render8ResizeHandles = (node: CanvasNode) => {
+    const handles: Array<{ handle: ResizeHandle; cursor: string; style: React.CSSProperties }> = [
+      { handle: 'nw', cursor: 'nwse-resize', style: { top: -4, left: -4 } },
+      { handle: 'n', cursor: 'ns-resize', style: { top: -4, left: '50%', transform: 'translateX(-50%)' } },
+      { handle: 'ne', cursor: 'nesw-resize', style: { top: -4, right: -4 } },
+      { handle: 'e', cursor: 'ew-resize', style: { top: '50%', right: -4, transform: 'translateY(-50%)' } },
+      { handle: 'se', cursor: 'nwse-resize', style: { bottom: -4, right: -4 } },
+      { handle: 's', cursor: 'ns-resize', style: { bottom: -4, left: '50%', transform: 'translateX(-50%)' } },
+      { handle: 'sw', cursor: 'nesw-resize', style: { bottom: -4, left: -4 } },
+      { handle: 'w', cursor: 'ew-resize', style: { top: '50%', left: -4, transform: 'translateY(-50%)' } }
+    ]
+
+    return handles.map((h) => (
+      <div
+        key={h.handle}
+        onMouseDown={(e) => {
+          e.stopPropagation()
+          setResizingNodeId(node.id)
+          setResizeHandle(h.handle)
+          setResizeStart({
+            x: node.x,
+            y: node.y,
+            width: node.width,
+            height: node.height,
+            mouseX: e.clientX,
+            mouseY: e.clientY
+          })
+        }}
+        style={h.style}
+        className={`absolute w-2.5 h-2.5 bg-[#38bdf8] border border-white rounded-full z-40 hover:scale-150 transition-transform shadow-md cursor-${h.cursor}`}
+      />
+    ))
+  }
+
+  // Build candidate list for @ mention
+  const mentionCandidates: MentionCandidate[] = [
+    ...doc.nodes
+      .filter((n) => n.type !== 'drawing_stroke')
+      .map((n) => ({
+        id: n.id,
+        title: n.data?.title || n.data?.label || (n.data?.text ? n.data.text.slice(0, 25) : 'Węzeł'),
+        type: 'canvas_node' as const
+      })),
+    ...allWorkspaceCandidates
+  ]
 
   return (
     <div
@@ -680,7 +784,7 @@ export const CanvasViewport: React.FC<Props> = ({
       </div>
 
       {/* UNBOUNDED FULL-SCREEN SVG LAYER */}
-      <svg className="absolute inset-0 pointer-events-none w-full h-full overflow-visible">
+      <svg className="absolute inset-0 pointer-events-none w-full h-full overflow-visible" style={{ overflow: 'visible' }}>
         <defs>
           <marker
             id="wb-arrow"
@@ -694,9 +798,20 @@ export const CanvasViewport: React.FC<Props> = ({
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#38bdf8" />
           </marker>
           <marker
+            id="wb-arrow-start"
+            viewBox="0 0 10 10"
+            refX="4"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M 10 0 L 0 5 L 10 10 z" fill="#38bdf8" />
+          </marker>
+          <marker
             id="wb-soft-arrow"
             viewBox="0 0 10 10"
-            refX="6"
+            refX="5"
             refY="5"
             markerWidth="5"
             markerHeight="5"
@@ -707,7 +822,7 @@ export const CanvasViewport: React.FC<Props> = ({
         </defs>
 
         <g style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
-          {/* Existing Drawing Strokes */}
+          {/* Drawing Strokes */}
           {doc.nodes
             .filter((n) => n.type === 'drawing_stroke' && n.data?.points)
             .map((stroke) => (
@@ -728,7 +843,7 @@ export const CanvasViewport: React.FC<Props> = ({
               />
             ))}
 
-          {/* Current Active Freehand Stroke */}
+          {/* Current Freehand Stroke */}
           {isDrawing && currentStroke.length > 1 && (
             <path
               d={renderStrokePath(currentStroke)}
@@ -740,53 +855,85 @@ export const CanvasViewport: React.FC<Props> = ({
             />
           )}
 
-          {/* Connectors / Arrows between Nodes */}
+          {/* Smart Connectors / Arrows (Click to edit) */}
           {doc.edges.map((edge) => {
-            const coords = getEdgeCoordinates(edge)
-            if (!coords) return null
+            const fromNode = doc.nodes.find((n) => n.id === edge.fromNode)
+            const toNode = doc.nodes.find((n) => n.id === edge.toNode)
+            if (!fromNode || !toNode) return null
+
+            const coords = calculateSmartEdge(fromNode, toNode)
             const isSoft = edge.style === 'dotted' || edge.style === 'soft_link'
+            const strokeColor = edge.color || (isSoft ? '#71717a' : '#38bdf8')
+
             return (
-              <g key={edge.id} className="pointer-events-auto">
+              <g
+                key={edge.id}
+                className="pointer-events-auto cursor-pointer group"
+                onClick={() => setEditingEdge(edge)}
+              >
                 <line
                   x1={coords.x1}
                   y1={coords.y1}
                   x2={coords.x2}
                   y2={coords.y2}
-                  stroke={edge.color || (isSoft ? '#71717a' : '#38bdf8')}
-                  strokeWidth={isSoft ? '1.5' : '2'}
+                  stroke={strokeColor}
+                  strokeWidth={isSoft ? '1.5' : '2.5'}
                   strokeDasharray={isSoft ? '4 4' : edge.style === 'dashed' ? '6 6' : undefined}
                   markerEnd={isSoft ? 'url(#wb-soft-arrow)' : 'url(#wb-arrow)'}
+                  markerStart={edge.bidirectional ? 'url(#wb-arrow-start)' : undefined}
+                  className="group-hover:stroke-white transition-colors"
                 />
+
+                {/* Interactive Relation Badge on Line */}
                 {edge.label && (
-                  <text
-                    x={(coords.x1 + coords.x2) / 2}
-                    y={(coords.y1 + coords.y2) / 2 - 6}
-                    fill={isSoft ? '#71717a' : '#a1a1aa'}
-                    fontSize="10"
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="600"
-                    textAnchor="middle"
-                  >
-                    {edge.label}
-                  </text>
+                  <g transform={`translate(${(coords.x1 + coords.x2) / 2}, ${(coords.y1 + coords.y2) / 2})`}>
+                    <rect
+                      x={-Math.max(30, edge.label.length * 4)}
+                      y={-10}
+                      width={Math.max(60, edge.label.length * 8)}
+                      height={20}
+                      rx={6}
+                      fill="#141519"
+                      stroke={strokeColor}
+                      strokeWidth={1}
+                      className="group-hover:fill-[#1f2128] transition-colors"
+                    />
+                    <text
+                      x={0}
+                      y={3.5}
+                      fill={strokeColor}
+                      fontSize="9.5"
+                      fontFamily="Inter, sans-serif"
+                      fontWeight="bold"
+                      textAnchor="middle"
+                    >
+                      {edge.label}
+                    </text>
+                  </g>
                 )}
               </g>
             )
           })}
 
-          {/* Dynamic Arrow Preview during Dragging */}
-          {connectingFrom && connectingMousePos && (
-            <line
-              x1={0}
-              y1={0}
-              x2={connectingMousePos.x}
-              y2={connectingMousePos.y}
-              stroke="#38bdf8"
-              strokeWidth="2"
-              strokeDasharray="4 4"
-              markerEnd="url(#wb-arrow)"
-            />
-          )}
+          {/* Dynamic Arrow Dragging Preview */}
+          {connectingFromNodeId && connectingMousePos && (() => {
+            const fromNode = doc.nodes.find((n) => n.id === connectingFromNodeId)
+            if (!fromNode) return null
+            const startX = fromNode.x + fromNode.width / 2
+            const startY = fromNode.y + fromNode.height / 2
+            return (
+              <line
+                x1={startX}
+                y1={startY}
+                x2={connectingMousePos.x}
+                y2={connectingMousePos.y}
+                stroke="#38bdf8"
+                strokeWidth="2.5"
+                strokeDasharray="4 4"
+                markerEnd="url(#wb-arrow)"
+              />
+            )
+          })()}
         </g>
       </svg>
 
@@ -800,6 +947,7 @@ export const CanvasViewport: React.FC<Props> = ({
           .map((node) => {
             const isSelected = selectedNodeIds.includes(node.id)
             const isHighlighted = highlightedNodeId === node.id
+            const isConnecting = activeTool === 'arrow' || activeTool === 'soft_link'
 
             return (
               <div
@@ -810,11 +958,15 @@ export const CanvasViewport: React.FC<Props> = ({
                   minHeight: `${node.height}px`
                 }}
                 onMouseDown={(e) => {
-                  if (activeTool === 'pen') {
-                    return
-                  }
+                  if (activeTool === 'pen') return
                   if (activeTool === 'eraser') {
                     notifyChange({ ...doc, nodes: doc.nodes.filter((n) => n.id !== node.id) })
+                    return
+                  }
+                  if (isConnecting) {
+                    e.stopPropagation()
+                    setConnectingFromNodeId(node.id)
+                    setConnectingMousePos(toWorldCoords(e.clientX, e.clientY))
                     return
                   }
                   if (e.button === 0) {
@@ -826,26 +978,82 @@ export const CanvasViewport: React.FC<Props> = ({
                     onActivity()
                   }
                 }}
-                className={`absolute ${activeTool === 'pen' ? 'pointer-events-none' : 'pointer-events-auto'} rounded-2xl transition-all shadow-xl ${
+                onMouseUp={(e) => {
+                  if (isConnecting && connectingFromNodeId) {
+                    e.stopPropagation()
+                    handleNodeConnectEnd(node.id)
+                  }
+                }}
+                className={`absolute ${
+                  activeTool === 'pen' ? 'pointer-events-none' : 'pointer-events-auto'
+                } rounded-2xl transition-all shadow-xl ${
                   isHighlighted
                     ? 'ring-4 ring-[#10b981] scale-105 shadow-2xl animate-pulse'
                     : isSelected
-                    ? 'ring-2 ring-[#38bdf8] shadow-2xl scale-[1.01]'
+                    ? 'ring-2 ring-[#38bdf8] shadow-2xl'
                     : 'hover:ring-1 hover:ring-[#3f3f46]'
                 }`}
               >
-                {/* 4 Connection Anchors */}
-                {activeTool !== 'pen' && renderAnchors(node)}
+                {/* 8 Resize Handles on Selected Node */}
+                {isSelected && activeTool === 'select' && render8ResizeHandles(node)}
 
-                {/* 1. Markdown Text Card */}
+                {/* 1. Minimalist Regular Note (Czysty tekst / Frameless Note) */}
                 {node.type === 'text_card' && (
-                  <div className="h-full w-full p-4 rounded-2xl bg-[#18181b] border border-[#27272a] flex flex-col justify-between text-xs break-words overflow-hidden">
+                  <div className="h-full w-full p-4 rounded-2xl bg-[#141519]/40 hover:bg-[#18181b]/70 border border-transparent hover:border-[#27272a] backdrop-blur-[2px] flex flex-col justify-between text-xs break-words overflow-hidden transition-colors">
                     {editingNodeId === node.id ? (
                       <div
                         onKeyDown={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
-                        className="flex flex-col h-full gap-2"
+                        className="flex flex-col h-full gap-2 relative"
                       >
+                        {/* Formatting Bar */}
+                        <div className="flex items-center gap-1 pb-1 border-b border-white/10 text-[10px]">
+                          {['small', 'medium', 'large', 'heading'].map((sz) => (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => {
+                                const updated = doc.nodes.map((n) =>
+                                  n.id === node.id ? { ...n, data: { ...n.data, fontSize: sz } } : n
+                                )
+                                setDoc({ ...doc, nodes: updated })
+                              }}
+                              className={`px-1.5 py-0.5 rounded font-mono ${
+                                (node.data.fontSize || 'medium') === sz
+                                  ? 'bg-[#38bdf8]/20 text-[#38bdf8] font-bold'
+                                  : 'text-[#71717a] hover:text-[#f4f4f5]'
+                              }`}
+                            >
+                              {sz === 'small' ? 'S' : sz === 'medium' ? 'M' : sz === 'large' ? 'L' : 'H'}
+                            </button>
+                          ))}
+                          <div className="w-px h-3 bg-white/10 mx-1" />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = doc.nodes.map((n) =>
+                                n.id === node.id ? { ...n, data: { ...n.data, bold: !n.data.bold } } : n
+                              )
+                              setDoc({ ...doc, nodes: updated })
+                            }}
+                            className={`p-1 rounded ${node.data.bold ? 'bg-white/20 text-[#f4f4f5]' : 'text-[#71717a]'}`}
+                          >
+                            <Bold className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = doc.nodes.map((n) =>
+                                n.id === node.id ? { ...n, data: { ...n.data, italic: !n.data.italic } } : n
+                              )
+                              setDoc({ ...doc, nodes: updated })
+                            }}
+                            className={`p-1 rounded ${node.data.italic ? 'bg-white/20 text-[#f4f4f5]' : 'text-[#71717a]'}`}
+                          >
+                            <Italic className="w-3 h-3" />
+                          </button>
+                        </div>
+
                         <input
                           type="text"
                           value={node.data.title || ''}
@@ -855,128 +1063,224 @@ export const CanvasViewport: React.FC<Props> = ({
                             )
                             setDoc({ ...doc, nodes: updated })
                           }}
-                          placeholder="Tytuł notatki..."
-                          className="bg-[#27272a] border border-[#3f3f46] rounded-lg px-2.5 py-1 text-xs text-[#f4f4f5] focus:outline-none focus:border-[#38bdf8]"
+                          placeholder="Tytuł..."
+                          className="bg-transparent border-b border-white/10 px-1 py-0.5 text-xs font-semibold text-[#f4f4f5] focus:outline-none focus:border-[#38bdf8]"
                         />
+
                         <textarea
                           value={node.data.markdown || ''}
                           onChange={(e) => {
+                            const text = e.target.value
                             const scrollH = e.target.scrollHeight
-                            const newHeight = Math.max(180, scrollH + 80)
+                            const newHeight = Math.max(140, scrollH + 70)
+
+                            // Check for @ mention trigger
+                            const lastWord = text.split(/\s+/).pop() || ''
+                            if (lastWord.startsWith('@')) {
+                              setMentionOpen(true)
+                              setMentionQuery(lastWord.slice(1))
+                              setMentionTargetNodeId(node.id)
+                            } else {
+                              setMentionOpen(false)
+                            }
+
                             const updated = doc.nodes.map((n) =>
                               n.id === node.id
-                                ? { ...n, height: Math.max(n.height, newHeight), data: { ...n.data, markdown: e.target.value } }
+                                ? { ...n, height: Math.max(n.height, newHeight), data: { ...n.data, markdown: text } }
                                 : n
                             )
                             setDoc({ ...doc, nodes: updated })
                           }}
-                          placeholder="Treść notatki... (użyj [hasło] do linkowania)"
-                          className="flex-1 bg-transparent text-[#f4f4f5] resize-none focus:outline-none font-mono text-[11px] min-h-[90px] break-words break-all leading-relaxed"
+                          placeholder="Treść... Wpisz @ aby podlinkować"
+                          className={`flex-1 bg-transparent text-[#f4f4f5] resize-none focus:outline-none leading-relaxed ${
+                            node.data.fontSize === 'heading'
+                              ? 'text-base font-bold'
+                              : node.data.fontSize === 'large'
+                              ? 'text-sm'
+                              : node.data.fontSize === 'small'
+                              ? 'text-[10px]'
+                              : 'text-xs'
+                          } ${node.data.bold ? 'font-bold' : ''} ${node.data.italic ? 'italic' : ''}`}
                         />
+
+                        {/* Autocomplete Menu */}
+                        {mentionOpen && mentionTargetNodeId === node.id && (
+                          <MentionAutocomplete
+                            isOpen={mentionOpen}
+                            query={mentionQuery}
+                            candidates={mentionCandidates}
+                            onSelect={(c) => {
+                              const words = (node.data.markdown || '').split(/\s+/)
+                              words[words.length - 1] = `@${c.title}`
+                              const newMarkdown = words.join(' ') + ' '
+                              const updated = doc.nodes.map((n) =>
+                                n.id === node.id ? { ...n, data: { ...n.data, markdown: newMarkdown } } : n
+                              )
+                              setDoc({ ...doc, nodes: updated })
+                              setMentionOpen(false)
+                            }}
+                            onClose={() => setMentionOpen(false)}
+                          />
+                        )}
+
                         <button
                           onClick={() => {
                             setEditingNodeId(null)
                             notifyChange(doc)
                           }}
-                          className="self-end px-3 py-1 rounded-lg bg-[#27272a] hover:bg-[#3f3f46] text-[11px] font-medium text-[#f4f4f5] transition-colors"
+                          className="self-end px-3 py-1 rounded-lg bg-[#27272a] hover:bg-[#3f3f46] text-[11px] font-medium text-[#f4f4f5]"
                         >
                           Gotowe
                         </button>
                       </div>
                     ) : (
                       <div onDoubleClick={() => setEditingNodeId(node.id)}>
-                        <div className="font-semibold text-[#f4f4f5] mb-2 pb-1.5 border-b border-[#27272a] flex items-center justify-between">
-                          <span className="truncate">{node.data.title || 'Notatka'}</span>
-                          <Edit2 className="w-3 h-3 text-[#71717a] opacity-60 hover:opacity-100 cursor-pointer shrink-0" />
-                        </div>
-                        <div className="text-[11px] text-[#a1a1aa] leading-relaxed whitespace-pre-wrap break-words break-all" style={{ overflowWrap: 'anywhere' }}>
-                          {renderLinkedText(node.data.markdown)}
+                        {node.data.title && (
+                          <div className="font-semibold text-[#f4f4f5] mb-1.5 flex items-center justify-between opacity-90">
+                            <span className="truncate">{node.data.title}</span>
+                            <Edit2 className="w-3 h-3 text-[#71717a] opacity-0 hover:opacity-100 cursor-pointer shrink-0" />
+                          </div>
+                        )}
+                        <div
+                          className={`leading-relaxed whitespace-pre-wrap break-words ${
+                            node.data.fontSize === 'heading'
+                              ? 'text-base font-bold text-[#f4f4f5]'
+                              : node.data.fontSize === 'large'
+                              ? 'text-sm text-[#f4f4f5]'
+                              : node.data.fontSize === 'small'
+                              ? 'text-[10px] text-[#a1a1aa]'
+                              : 'text-xs text-[#d4d4d8]'
+                          } ${node.data.bold ? 'font-bold' : ''} ${node.data.italic ? 'italic' : ''}`}
+                        >
+                          {renderLinkedText(node.data.markdown || 'Kliknij dwukrotnie, aby pisać...')}
                         </div>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* 2. Sticky Note with Pastel Colors & Word Wrap */}
-                {node.type === 'sticky_note' && (
-                  <div
-                    onDoubleClick={() => setEditingNodeId(node.id)}
-                    className={`h-full w-full p-4 rounded-2xl border flex flex-col justify-between shadow-lg text-xs transition-colors overflow-hidden break-words ${getStickyBgClass(
-                      node.data.color || 'sand'
-                    )}`}
-                  >
-                    {editingNodeId === node.id ? (
-                      <div
-                        onKeyDown={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        className="flex flex-col h-full gap-2"
-                      >
-                        <textarea
-                          value={node.data.text || ''}
-                          onChange={(e) => {
-                            const scrollH = e.target.scrollHeight
-                            const newHeight = Math.max(200, scrollH + 70)
-                            const updated = doc.nodes.map((n) =>
-                              n.id === node.id
-                                ? { ...n, height: Math.max(n.height, newHeight), data: { ...n.data, text: e.target.value } }
-                                : n
-                            )
-                            setDoc({ ...doc, nodes: updated })
-                          }}
-                          autoFocus
-                          placeholder="Wpisz treść..."
-                          className="flex-1 bg-transparent text-inherit resize-none focus:outline-none text-xs font-medium break-words break-all leading-relaxed"
-                        />
-                        <div className="flex items-center justify-between pt-1 border-t border-white/10">
-                          {/* Muted Pastel Color Switcher */}
-                          <div className="flex items-center gap-1">
-                            {[
-                              { id: 'sand', bg: 'bg-[#4a4128]' },
-                              { id: 'sage', bg: 'bg-[#2d4a37]' },
-                              { id: 'rose', bg: 'bg-[#52303f]' },
-                              { id: 'lavender', bg: 'bg-[#3e3659]' },
-                              { id: 'ocean', bg: 'bg-[#293f54]' }
-                            ].map((c) => (
-                              <button
-                                key={c.id}
-                                onClick={() => {
-                                  const updated = doc.nodes.map((n) =>
-                                    n.id === node.id ? { ...n, data: { ...n.data, color: c.id } } : n
-                                  )
-                                  notifyChange({ ...doc, nodes: updated })
-                                }}
-                                className={`w-3.5 h-3.5 rounded-full border border-black/30 ${c.bg}`}
-                              />
-                            ))}
-                          </div>
-                          <button
-                            onClick={() => {
-                              setEditingNodeId(null)
-                              notifyChange(doc)
+                {/* 2. Vibrant Square Sticky Note (Proportional Auto-Scaling) */}
+                {node.type === 'sticky_note' && (() => {
+                  const palette = STICKY_COLORS[node.data.color || 'yellow'] || STICKY_COLORS.yellow
+                  return (
+                    <div
+                      onDoubleClick={() => setEditingNodeId(node.id)}
+                      className={`h-full w-full p-4 rounded-2xl border shadow-xl flex flex-col justify-between text-xs transition-all overflow-hidden break-words ${palette.bg} ${palette.border} ${palette.text}`}
+                    >
+                      {editingNodeId === node.id ? (
+                        <div
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          className="flex flex-col h-full gap-2 relative"
+                        >
+                          <textarea
+                            value={node.data.text || ''}
+                            onChange={(e) => {
+                              const text = e.target.value
+                              // Proportional scaling (square growth in both width and height)
+                              const chars = text.length
+                              const proportionalDim = Math.max(200, Math.round(Math.sqrt(chars * 320)))
+
+                              // Check for @ mention trigger
+                              const lastWord = text.split(/\s+/).pop() || ''
+                              if (lastWord.startsWith('@')) {
+                                setMentionOpen(true)
+                                setMentionQuery(lastWord.slice(1))
+                                setMentionTargetNodeId(node.id)
+                              } else {
+                                setMentionOpen(false)
+                              }
+
+                              const updated = doc.nodes.map((n) =>
+                                n.id === node.id
+                                  ? {
+                                      ...n,
+                                      width: Math.max(n.width, proportionalDim),
+                                      height: Math.max(n.height, proportionalDim),
+                                      data: { ...n.data, text }
+                                    }
+                                  : n
+                              )
+                              setDoc({ ...doc, nodes: updated })
                             }}
-                            className="px-2.5 py-0.5 rounded bg-black/30 hover:bg-black/50 text-[10px] font-semibold text-inherit"
-                          >
-                            Zapisz
-                          </button>
+                            autoFocus
+                            placeholder="Wpisz treść... (@ aby linkować)"
+                            className="flex-1 bg-transparent text-inherit resize-none focus:outline-none text-xs font-medium leading-relaxed"
+                          />
+
+                          {/* Autocomplete Menu */}
+                          {mentionOpen && mentionTargetNodeId === node.id && (
+                            <MentionAutocomplete
+                              isOpen={mentionOpen}
+                              query={mentionQuery}
+                              candidates={mentionCandidates}
+                              onSelect={(c) => {
+                                const words = (node.data.text || '').split(/\s+/)
+                                words[words.length - 1] = `@${c.title}`
+                                const newText = words.join(' ') + ' '
+                                const updated = doc.nodes.map((n) =>
+                                  n.id === node.id ? { ...n, data: { ...n.data, text: newText } } : n
+                                )
+                                setDoc({ ...doc, nodes: updated })
+                                setMentionOpen(false)
+                              }}
+                              onClose={() => setMentionOpen(false)}
+                            />
+                          )}
+
+                          <div className="flex items-center justify-between pt-1 border-t border-black/10">
+                            {/* Color Switcher */}
+                            <div className="flex items-center gap-1">
+                              {Object.keys(STICKY_COLORS).map((cKey) => (
+                                <button
+                                  key={cKey}
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = doc.nodes.map((n) =>
+                                      n.id === node.id ? { ...n, data: { ...n.data, color: cKey } } : n
+                                    )
+                                    notifyChange({ ...doc, nodes: updated })
+                                  }}
+                                  className={`w-4 h-4 rounded-full border border-black/20 ${STICKY_COLORS[cKey].bg} ${
+                                    node.data.color === cKey ? 'ring-2 ring-black/40 scale-110' : ''
+                                  }`}
+                                />
+                              ))}
+                            </div>
+
+                            <button
+                              onClick={() => {
+                                setEditingNodeId(null)
+                                notifyChange(doc)
+                              }}
+                              className="px-2.5 py-0.5 rounded bg-black/20 hover:bg-black/40 text-[10px] font-bold text-inherit"
+                            >
+                              Zapisz
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="text-xs font-medium leading-relaxed whitespace-pre-wrap break-words break-all" style={{ overflowWrap: 'anywhere' }}>
-                          {renderLinkedText(node.data.text)}
-                        </div>
-                        <div className="text-[9px] opacity-60 self-end font-mono">Sticky Note</div>
-                      </>
-                    )}
-                  </div>
-                )}
+                      ) : (
+                        <>
+                          <div className="text-xs font-semibold leading-relaxed whitespace-pre-wrap break-words">
+                            {renderLinkedText(node.data.text || 'Karteczka Sticky')}
+                          </div>
+                          <div className="text-[9px] opacity-60 self-end font-mono">Sticky Note</div>
+                        </>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* 3. Image Node / Visual Entity */}
                 {(node.type === 'image_node' || node.type === 'visual_entity_node') && (
                   <div className="h-full w-full rounded-2xl bg-[#18181b] border border-[#27272a] overflow-hidden flex flex-col shadow-lg">
                     <div className="flex-1 bg-[#09090b] flex items-center justify-center p-1 overflow-hidden relative min-h-[140px]">
                       {node.data.src ? (
-                        <img src={node.data.src} alt={node.data.title} className="max-h-full max-w-full object-contain rounded-lg" />
+                        <img
+                          src={node.data.src}
+                          alt={node.data.title}
+                          className="max-h-full max-w-full object-contain rounded-lg shadow-sm"
+                        />
                       ) : (
                         <div className="text-[#71717a] flex flex-col items-center gap-1.5">
                           <User className="w-8 h-8 text-[#c084fc] opacity-60" />
@@ -985,7 +1289,7 @@ export const CanvasViewport: React.FC<Props> = ({
                       )}
                     </div>
                     <div className="p-2.5 border-t border-[#27272a] flex items-center justify-between text-xs text-[#f4f4f5] bg-[#18181b]">
-                      <span className="truncate font-medium">{node.data.title || 'Obraz'}</span>
+                      <span className="truncate font-semibold text-xs">{node.data.title || 'Obraz'}</span>
                       {node.data.linked_note_id && onOpenNote && (
                         <button
                           onClick={(e) => {
@@ -1017,7 +1321,13 @@ export const CanvasViewport: React.FC<Props> = ({
                           const scrollH = e.target.scrollHeight
                           const newHeight = Math.max(160, scrollH + 50)
                           const updated = doc.nodes.map((n) =>
-                            n.id === node.id ? { ...n, height: Math.max(n.height, newHeight), data: { ...n.data, text: e.target.value, label: e.target.value } } : n
+                            n.id === node.id
+                              ? {
+                                  ...n,
+                                  height: Math.max(n.height, newHeight),
+                                  data: { ...n.data, text: e.target.value, label: e.target.value }
+                                }
+                              : n
                           )
                           setDoc({ ...doc, nodes: updated })
                         }}
@@ -1029,17 +1339,17 @@ export const CanvasViewport: React.FC<Props> = ({
                         }}
                         autoFocus
                         placeholder="Wpisz treść..."
-                        className="w-full h-full bg-transparent text-[#f4f4f5] text-center resize-none focus:outline-none text-xs font-semibold break-words break-all leading-relaxed"
+                        className="w-full h-full bg-transparent text-[#f4f4f5] text-center resize-none focus:outline-none text-xs font-semibold break-words leading-relaxed"
                       />
                     ) : (
-                      <span className="font-semibold text-[#f4f4f5] text-center leading-relaxed break-words break-all" style={{ overflowWrap: 'anywhere' }}>
+                      <span className="font-semibold text-[#f4f4f5] text-center leading-relaxed break-words">
                         {renderLinkedText(node.data.text || node.data.label || 'Kształt')}
                       </span>
                     )}
                   </div>
                 )}
 
-                {/* 5. Live Editable Active Recall Card */}
+                {/* 5. Live Editable Active Recall Flashcard (Excluded from Graph) */}
                 {node.type === 'quiz_card' && (
                   <div
                     onKeyDown={(e) => e.stopPropagation()}
@@ -1050,7 +1360,7 @@ export const CanvasViewport: React.FC<Props> = ({
                       <div className="text-[10px] text-[#f59e0b] font-bold uppercase tracking-wider mb-2 flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
                           <HelpCircle className="w-3.5 h-3.5" />
-                          <span>Active Recall</span>
+                          <span>Fiszka SRS (Nie w grafie)</span>
                         </div>
                         <button
                           onClick={() => setEditingNodeId(editingNodeId === node.id ? null : node.id)}
@@ -1071,7 +1381,6 @@ export const CanvasViewport: React.FC<Props> = ({
                               )
                               setDoc({ ...doc, nodes: updated })
                             }}
-                            onKeyDown={(e) => e.stopPropagation()}
                             placeholder="Wpisz pytanie..."
                             className="w-full bg-[#27272a] border border-[#3f3f46] rounded-lg px-2.5 py-1 text-xs text-[#f4f4f5] focus:outline-none focus:border-[#f59e0b]"
                           />
@@ -1084,7 +1393,6 @@ export const CanvasViewport: React.FC<Props> = ({
                               )
                               setDoc({ ...doc, nodes: updated })
                             }}
-                            onKeyDown={(e) => e.stopPropagation()}
                             placeholder="Wpisz odpowiedź..."
                             className="w-full bg-[#27272a] border border-[#3f3f46] rounded-lg px-2.5 py-1 text-xs text-[#10b981] font-mono focus:outline-none focus:border-[#10b981]"
                           />
@@ -1101,10 +1409,9 @@ export const CanvasViewport: React.FC<Props> = ({
                       ) : (
                         <div
                           onDoubleClick={() => setEditingNodeId(node.id)}
-                          className="text-[#f4f4f5] text-xs font-semibold mb-2 leading-relaxed break-words break-all"
-                          style={{ overflowWrap: 'anywhere' }}
+                          className="text-[#f4f4f5] text-xs font-semibold mb-2 leading-relaxed break-words"
                         >
-                          {renderLinkedText(node.data.question)}
+                          {node.data.question}
                         </div>
                       )}
                     </div>
@@ -1113,7 +1420,9 @@ export const CanvasViewport: React.FC<Props> = ({
                       <div className="pt-2 border-t border-[#27272a]">
                         {node.data.is_flipped ? (
                           <div className="flex items-center justify-between">
-                            <span className="text-[#10b981] text-xs font-mono font-semibold break-all">{node.data.answer}</span>
+                            <span className="text-[#10b981] text-xs font-mono font-semibold break-all">
+                              {node.data.answer}
+                            </span>
                             <button
                               onClick={() => {
                                 const updated = doc.nodes.map((n) =>
@@ -1145,30 +1454,12 @@ export const CanvasViewport: React.FC<Props> = ({
                     )}
                   </div>
                 )}
-
-                {/* Corner Resize Drag Handle (Visible when selected) */}
-                {isSelected && (
-                  <div
-                    onMouseDown={(e) => {
-                      e.stopPropagation()
-                      setResizingNodeId(node.id)
-                      setResizeStart({
-                        width: node.width,
-                        height: node.height,
-                        mouseX: e.clientX,
-                        mouseY: e.clientY
-                      })
-                    }}
-                    className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-[#38bdf8] border border-white rounded-full cursor-se-resize z-40 hover:scale-125 transition-transform shadow-md"
-                    title="Przeciągnij, aby zmienić rozmiar"
-                  />
-                )}
               </div>
             )
           })}
       </div>
 
-      {/* Floating Glassmorphism Whiteboard Toolbar */}
+      {/* Floating Toolbar */}
       <WhiteboardToolbar
         activeTool={activeTool}
         onSelectTool={(t) => setActiveTool(t)}
@@ -1178,6 +1469,31 @@ export const CanvasViewport: React.FC<Props> = ({
         onChangePenWidth={(w) => setPenWidth(w)}
         onAddImage={handleAddImage}
       />
+
+      {/* Image Name Input Modal */}
+      <ImageNameModal
+        isOpen={imageModalOpen}
+        previewSrc={pendingImageData?.base64 || null}
+        defaultName={pendingImageData?.fileName || 'Nowe_Zdjecie'}
+        onClose={() => setImageModalOpen(false)}
+        onConfirm={handleConfirmImage}
+      />
+
+      {/* Arrow Properties & Customization Modal */}
+      {editingEdge && (
+        <ArrowEditModal
+          isOpen={!!editingEdge}
+          initialData={{
+            label: editingEdge.label || '',
+            color: editingEdge.color || '#38bdf8',
+            style: editingEdge.style || 'solid',
+            bidirectional: editingEdge.bidirectional || false,
+            strokeWidth: 2.5
+          }}
+          onClose={() => setEditingEdge(null)}
+          onConfirm={handleUpdateEdge}
+        />
+      )}
 
       {/* Collapsible Bottom "Powiązane Tablice" Section */}
       <div className="absolute bottom-20 left-4 z-30 flex flex-col items-start select-none">
@@ -1204,7 +1520,9 @@ export const CanvasViewport: React.FC<Props> = ({
                 </div>
               ))}
             {doc.edges.filter((e) => e.style === 'soft_link').length === 0 && (
-              <span className="text-[10px] text-[#71717a] italic p-1">Brak subtelnych linków. Użyj narzędzia [L] lub wpisz [nazwa] w tekście!</span>
+              <span className="text-[10px] text-[#71717a] italic p-1">
+                Brak subtelnych linków. Użyj narzędzia [L] lub wpisz @nazwa w tekście!
+              </span>
             )}
           </div>
         )}

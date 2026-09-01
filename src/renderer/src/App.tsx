@@ -23,6 +23,7 @@ import { CommandPalette } from './components/terminal/CommandPalette'
 import { AssetDrawer } from './components/drawer/AssetDrawer'
 import { SrsReviewRunner } from './components/review/SrsReviewRunner'
 import { AnalyticsModal } from './components/analytics/AnalyticsModal'
+import { ConfigEditorModal } from './components/config/ConfigEditorModal'
 
 interface OpenTab {
   id: string
@@ -65,6 +66,7 @@ export const App: React.FC = () => {
   const [statsHudOpen, setStatsHudOpen] = useState(false)
   const [reviewRunnerOpen, setReviewRunnerOpen] = useState(false)
   const [analyticsModalOpen, setAnalyticsModalOpen] = useState(false)
+  const [configModalOpen, setConfigModalOpen] = useState(false)
   const [kickoffOpen, setKickoffOpen] = useState(false)
   const [evaluationOpen, setEvaluationOpen] = useState(false)
   const [drawerSearchQuery, setDrawerSearchQuery] = useState('')
@@ -542,6 +544,7 @@ export const App: React.FC = () => {
               onOpenTasks={() => setActiveType('tasks')}
               onOpenReview={() => setReviewRunnerOpen(true)}
               onOpenAnalytics={() => setAnalyticsModalOpen(true)}
+              onOpenConfig={() => setConfigModalOpen(true)}
               onRefreshFiles={refreshFiles}
               onRequestCreate={handleRequestCreate}
               onDeletePath={handleDeletePath}
@@ -642,6 +645,9 @@ export const App: React.FC = () => {
                 onOpenCanvas={(canvasPath) => {
                   handleOpenFile({ name: canvasPath.split('/').pop() || 'canvas.json', relativePath: canvasPath, type: 'file', updatedAt: Date.now() })
                 }}
+                onOpenNote={(notePath) => {
+                  handleOpenFile({ name: notePath.split('/').pop() || 'note.md', relativePath: notePath, type: 'file', updatedAt: Date.now() })
+                }}
               />
             ) : activeType === 'md' && activePath ? (
               <MarkdownEditor
@@ -697,6 +703,15 @@ export const App: React.FC = () => {
         defaultFolder={createModalDefaultFolder}
         onClose={() => setCreateModalOpen(false)}
         onCreate={handleCreateFileOrFolder}
+      />
+
+      {/* Configuration & Settings Modal (config.json) */}
+      <ConfigEditorModal
+        isOpen={configModalOpen}
+        onClose={() => setConfigModalOpen(false)}
+        onConfigSaved={() => {
+          // Re-sync if needed
+        }}
       />
 
       {/* Floating HUD Widget */}

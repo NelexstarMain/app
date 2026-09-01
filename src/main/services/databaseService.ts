@@ -13,6 +13,7 @@ import {
   FtsSearchResult,
   TaskPriority
 } from '../../shared/types/database'
+import { CanvasDocument } from '../../shared/types/canvas'
 import { updateFSRS, ReviewGrade } from '../../shared/types/fsrs'
 import { AnalyticsSummary, calculateFlowIndex, calculateGraphGrowthRate } from '../../shared/types/analytics'
 
@@ -223,6 +224,106 @@ export class DatabaseService {
         })
       }
     }
+  }
+
+  // --- Canvas Document Indexing ---
+  public indexCanvasDocument(canvasPath: string, doc: CanvasDocument): void {
+    const canvasId = doc.canvas_id || canvasPath
+    const title = doc.title || path.basename(canvasPath, '.canvas.json')
+    this.canvases.set(canvasId, {
+      canvas_id: canvasId,
+      title,
+      file_path: canvasPath,
+      node_count: doc.nodes?.length || 0,
+      edge_count: doc.edges?.length || 0,
+      created_at: Date.now(),
+      updated_at: Date.now()
+    })
+
+    // Clean up old canvas edges
+    for (const [id, edge] of this.edges.entries()) {
+      if (edge.origin_canvas_id === canvasId) {
+        this.edges.delete(id)
+      }
+    }
+
+    // 1. Index edges
+    if (doc.edges) {
+      for (const edge of doc.edges) {
+        const edgeId = `canvas_edge_${edge.id || `${edge.fromNode}_${edge.toNode}`}`
+        this.edges.set(edgeId, {
+          edge_id: edgeId,
+          source_id: edge.fromNode,
+          source_type: 'note',
+          target_id: edge.toNode,
+          target_type: 'note',
+          relation_label: edge.label || 'RELACJA',
+          origin_context: 'canvas_arrow',
+          origin_canvas_id: canvasId,
+          created_at: Date.now()
+        })
+      }
+    }
+
+    // 2. Index canvas nodes and sync quiz cards into SRS (exclude quizzes from graph)
+    if (doc.nodes) {
+      for (const node of doc.nodes) {
+        if (node.type === 'quiz_card') {
+          const cardId = node.data?.srs_card_id || `srs_${node.id}`
+          if (!this.srsCards.has(cardId)) {
+            this.createSrsCard({
+              card_id: cardId,
+              parent_note_id: null,
+              parent_entity_id: null,
+              parent_canvas_id: canvasId,
+              question_text: node.data?.question || 'Pytanie',
+              answer_text: node.data?.answer || 'Odpowiedź',
+              media_asset_id: null,
+              stability: 1.0,
+              difficulty: 5.0,
+              repetitions: 0,
+              lapses: 0,
+              state: 'NEW',
+              last_review_at: null,
+              due_date: Date.now()
+            })
+          } else {
+            const existing = this.srsCards.get(cardId)!
+            existing.question_text = node.data?.question || existing.question_text
+            existing.answer_text = node.data?.answer || existing.answer_text
+          }
+          continue
+        }
+
+        if (node.type === 'drawing_stroke') continue
+
+        // Register card as a graph node
+        const nodeTitle =
+          node.data?.title ||
+          node.data?.label ||
+          (node.type === 'sticky_note'
+            ? node.data?.text
+              ? node.data.text.slice(0, 30)
+              : 'Sticky Note'
+            : node.data?.text
+            ? node.data.text.slice(0, 30)
+            : 'Węzeł')
+
+        const nodeRecordId = `${canvasId}#${node.id}`
+        this.notes.set(nodeRecordId, {
+          note_id: nodeRecordId,
+          title: nodeTitle,
+          file_path: canvasPath,
+          word_count: 10,
+          char_count: 50,
+          checksum_hash: '',
+          created_at: Date.now(),
+          updated_at: Date.now()
+        })
+      }
+    }
+
+    this.persistToDisk()
   }
 
   // --- Visual Entities & Assets ---

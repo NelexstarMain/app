@@ -4,6 +4,7 @@ import { FileSystemService } from '../services/fileSystemService'
 import { DatabaseService } from '../services/databaseService'
 import { AssetService } from '../services/assetService'
 import { RecoveryService } from '../services/recoveryService'
+import { ConfigService } from '../services/configService'
 import * as path from 'path'
 
 export function registerIpcHandlers(
@@ -11,7 +12,8 @@ export function registerIpcHandlers(
   fsService: FileSystemService,
   dbService: DatabaseService,
   assetService: AssetService,
-  recoveryService: RecoveryService
+  recoveryService: RecoveryService,
+  configService: ConfigService
 ): void {
   // 1. Workspace
   ipcMain.handle(IpcChannel.WORKSPACE_SELECT, async () => {
@@ -27,6 +29,7 @@ export function registerIpcHandlers(
     dbService.init(selected)
     assetService.setWorkspace(selected)
     recoveryService.setWorkspace(selected)
+    configService.setWorkspace(selected)
     return { path: selected }
   })
 
@@ -36,6 +39,7 @@ export function registerIpcHandlers(
       dbService.init(payload.workspacePath)
       assetService.setWorkspace(payload.workspacePath)
       recoveryService.setWorkspace(payload.workspacePath)
+      configService.setWorkspace(payload.workspacePath)
       const stats = fsService.getWorkspaceStats()
       return { success: true, stats }
     } catch (err: any) {
@@ -67,6 +71,13 @@ export function registerIpcHandlers(
       if (payload.relativePath.endsWith('.md')) {
         const title = path.basename(payload.relativePath, '.md')
         dbService.indexMarkdownNote(payload.relativePath, title, payload.relativePath, payload.content)
+      } else if (payload.relativePath.endsWith('.canvas.json')) {
+        try {
+          const parsed = JSON.parse(payload.content)
+          dbService.indexCanvasDocument(payload.relativePath, parsed)
+        } catch {
+          // Ignore parse errors during active editing
+        }
       }
       return { success: true, ...res }
     } catch (err: any) {
@@ -219,9 +230,11 @@ export function registerIpcHandlers(
   ipcMain.handle(IpcChannel.DB_REINDEX_ALL, async () => {
     const start = Date.now()
     try {
-      const files = fsService.listFiles('notes')
+      const notes = fsService.listFiles('notes')
+      const canvases = fsService.listFiles('canvases')
       let count = 0
-      function reindex(items: any[]) {
+
+      function reindexNotes(items: any[]) {
         for (const item of items) {
           if (item.type === 'file' && item.extension === '.md') {
             const data = fsService.readFile(item.relativePath)
@@ -229,11 +242,30 @@ export function registerIpcHandlers(
             dbService.indexMarkdownNote(item.relativePath, title, item.relativePath, data.content)
             count++
           } else if (item.children) {
-            reindex(item.children)
+            reindexNotes(item.children)
           }
         }
       }
-      reindex(files)
+
+      function reindexCanvases(items: any[]) {
+        for (const item of items) {
+          if (item.type === 'file' && item.name.includes('.canvas.')) {
+            const data = fsService.readFile(item.relativePath)
+            try {
+              const parsed = JSON.parse(data.content)
+              dbService.indexCanvasDocument(item.relativePath, parsed)
+              count++
+            } catch {
+              // Ignore
+            }
+          } else if (item.children) {
+            reindexCanvases(item.children)
+          }
+        }
+      }
+
+      reindexNotes(notes)
+      reindexCanvases(canvases)
       return { success: true, count, durationMs: Date.now() - start }
     } catch (err: any) {
       return { success: false, count: 0, durationMs: Date.now() - start, error: err.message }
@@ -323,7 +355,35 @@ export function registerIpcHandlers(
     }
   })
 
-  // 6. App Utilities
+  // 6. Configuration & Settings (JSON)
+  ipcMain.handle(IpcChannel.CONFIG_GET, async () => {
+    try {
+      const res = configService.getConfig()
+      return { config: res.config, rawJson: res.rawJson }
+    } catch (err: any) {
+      return { config: {} as any, rawJson: '', error: err.message }
+    }
+  })
+
+  ipcMain.handle(IpcChannel.CONFIG_UPDATE, async (_, payload: { configJson: string }) => {
+    try {
+      const res = configService.updateConfig(payload.configJson)
+      return res
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle(IpcChannel.CONFIG_RESET, async () => {
+    try {
+      const res = configService.resetToDefaults()
+      return res
+    } catch (err: any) {
+      return { success: false, config: {} as any, rawJson: '', error: err.message }
+    }
+  })
+
+  // 7. App Utilities
   ipcMain.handle(IpcChannel.APP_GET_VERSION, async () => {
     return { version: '1.3.0', platform: process.platform }
   })
