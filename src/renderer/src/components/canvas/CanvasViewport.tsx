@@ -642,16 +642,21 @@ export const CanvasViewport: React.FC<Props> = ({
             label: config.label,
             color: config.color,
             style: config.style,
-            bidirectional: config.bidirectional
+            bidirectional: config.bidirectional,
+            strokeWidth: config.strokeWidth
           }
         : e
     )
-    notifyChange({ ...doc, edges: updated })
+    const updatedDoc = { ...doc, edges: updated }
+    setDoc(updatedDoc)
+    notifyChange(updatedDoc)
     setEditingEdge(null)
   }
 
   const handleDeleteEdge = (edgeId: string) => {
-    notifyChange({ ...doc, edges: doc.edges.filter((e) => e.id !== edgeId) })
+    const updatedDoc = { ...doc, edges: doc.edges.filter((e) => e.id !== edgeId) }
+    setDoc(updatedDoc)
+    notifyChange(updatedDoc)
     setEditingEdge(null)
   }
 
@@ -664,13 +669,52 @@ export const CanvasViewport: React.FC<Props> = ({
     return d
   }
 
-  // Render text with interactive @mention jump links
+  // Render text with interactive @mention jump links and [[wikilinks]]
   const renderLinkedText = (text: string) => {
     if (!text) return null
-    // Match @[Title] or @Word
-    const parts = text.split(/(@(?:\[[^\]]+\]|[a-zA-Z0-9_\-\u00C0-\u024F]+))/g)
+    // Match [[@entity_...|Label]], [[Note Title]], @[Title], @Word
+    const parts = text.split(/(\[\[@[a-zA-Z0-9_\-\|]+\]\]|\[\[[a-zA-Z0-9_\-\s\/\.\u00C0-\u024F\|]+\]\]|@(?:\[[^\]]+\]|[a-zA-Z0-9_\-\u00C0-\u024F]+))/g)
 
     return parts.map((part, idx) => {
+      if (part.startsWith('[[@')) {
+        const clean = part.slice(2, -2)
+        const [entId, label] = clean.split('|')
+        const cleanId = entId.startsWith('@') ? entId.slice(1) : entId
+        return (
+          <span
+            key={idx}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleJumpToNode(cleanId)
+            }}
+            className="inline-flex items-center gap-0.5 px-1 py-0.5 mx-0.5 rounded-md bg-[#c084fc]/20 hover:bg-[#c084fc]/35 text-[#c084fc] border border-[#c084fc]/40 cursor-pointer font-semibold transition-colors shadow-sm text-[11px]"
+            title={`Zasób: ${label || cleanId}`}
+          >
+            <User className="w-2.5 h-2.5" />
+            <span>{label || cleanId}</span>
+          </span>
+        )
+      }
+
+      if (part.startsWith('[[') && part.endsWith(']]')) {
+        const clean = part.slice(2, -2)
+        const [targetNote, label] = clean.split('|')
+        return (
+          <span
+            key={idx}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleJumpToNode(targetNote)
+            }}
+            className="inline-flex items-center gap-0.5 px-1 py-0.5 mx-0.5 rounded-md bg-[#38bdf8]/20 hover:bg-[#38bdf8]/35 text-[#38bdf8] border border-[#38bdf8]/40 cursor-pointer font-semibold transition-colors shadow-sm text-[11px]"
+            title={`Przejdź do: ${targetNote}`}
+          >
+            <FileText className="w-2.5 h-2.5" />
+            <span>{label || targetNote}</span>
+          </span>
+        )
+      }
+
       if (part.startsWith('@')) {
         const rawName = part.startsWith('@[') ? part.slice(2, -1) : part.slice(1)
         return (
@@ -680,8 +724,8 @@ export const CanvasViewport: React.FC<Props> = ({
               e.stopPropagation()
               handleJumpToNode(rawName)
             }}
-            className="inline-flex items-center gap-0.5 px-1 py-0.5 mx-0.5 rounded-md bg-[#38bdf8]/20 hover:bg-[#38bdf8]/35 text-[#38bdf8] border border-[#38bdf8]/40 cursor-pointer font-semibold transition-colors shadow-sm"
-            title={`Przejdź do: ${rawName}`}
+            className="inline-flex items-center gap-0.5 px-1 py-0.5 mx-0.5 rounded-md bg-[#10b981]/20 hover:bg-[#10b981]/35 text-[#10b981] border border-[#10b981]/40 cursor-pointer font-semibold transition-colors shadow-sm text-[11px]"
+            title={`Wzmianka: ${rawName}`}
           >
             <AtSign className="w-2.5 h-2.5" />
             <span>{rawName}</span>

@@ -1,4 +1,4 @@
-﻿export interface StickyPaletteColor {
+export interface StickyPaletteColor {
   id: string
   name: string
   bg: string
@@ -8,9 +8,16 @@
 
 export interface AppConfig {
   version: string
+  theme: {
+    accentColor: 'cyan' | 'emerald' | 'purple' | 'amber' | 'rose'
+    uiScale: number
+    borderRadius: 'small' | 'medium' | 'large'
+  }
   editor: {
     defaultFontSize: 'small' | 'medium' | 'large' | 'heading'
     defaultFontFamily: string
+    lineHeight: number
+    maxNoteWidth: number
     showGrid: boolean
     gridSize: number
     snapToGrid: boolean
@@ -26,17 +33,26 @@ export interface AppConfig {
     nodeColorNote: string
     nodeColorCanvas: string
     nodeColorAsset: string
+    nodeColorTag: string
     edgeColor: string
     repulsionForce: number
     springForce: number
+    collisionRadius: number
   }
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  version: '1.0.0',
+  version: '1.1.0',
+  theme: {
+    accentColor: 'cyan',
+    uiScale: 1.0,
+    borderRadius: 'medium'
+  },
   editor: {
     defaultFontSize: 'medium',
     defaultFontFamily: 'Inter, sans-serif',
+    lineHeight: 1.6,
+    maxNoteWidth: 800,
     showGrid: true,
     gridSize: 24,
     snapToGrid: false
@@ -59,16 +75,18 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     { label: 'Różowy', value: '#fb7185' }
   ],
   srs: {
-    defaultStability: 1.0,
-    defaultDifficulty: 5.0,
+    defaultStability: 1.2,
+    defaultDifficulty: 4.8,
     maxReviewsPerSession: 50
   },
   graph: {
     nodeColorNote: '#10b981',
     nodeColorCanvas: '#38bdf8',
     nodeColorAsset: '#c084fc',
+    nodeColorTag: '#f59e0b',
     edgeColor: '#3f3f46',
-    repulsionForce: 700,
-    springForce: 0.004
+    repulsionForce: 750,
+    springForce: 0.005,
+    collisionRadius: 28
   }
 }

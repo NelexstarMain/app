@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { FileText, Eye, Edit3, Sparkles, Tag, HelpCircle, User, ChevronRight, Check } from 'lucide-react'
+import { FileText, Eye, Edit3, Sparkles, Tag, HelpCircle, User, ChevronRight, Check, AtSign } from 'lucide-react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
 import { VisualEntityRecord } from '../../../../shared/types/database'
+import { MentionAutocomplete, MentionCandidate } from '../canvas/MentionAutocomplete'
 
 interface Props {
   relativePath: string
@@ -22,16 +23,67 @@ export const MarkdownEditor: React.FC<Props> = ({
   const [previewMode, setPreviewMode] = useState<'split' | 'edit' | 'preview'>('split')
   const [isSaving, setIsSaving] = useState(false)
   const [hoverEntity, setHoverEntity] = useState<{ entity: VisualEntityRecord | null; x: number; y: number } | null>(null)
+  
+  // Autocomplete state
+  const [autocompleteOpen, setAutocompleteOpen] = useState(false)
+  const [autocompleteQuery, setAutocompleteQuery] = useState('')
+  const [triggerType, setTriggerType] = useState<'[[' | '@'>('[[')
+  const [candidates, setCandidates] = useState<MentionCandidate[]>([])
+  
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     setContent(initialContent)
   }, [relativePath, initialContent])
 
+  // Load workspace candidates for autocomplete
+  useEffect(() => {
+    const loadCandidates = async () => {
+      try {
+        const res = await window.electronAPI.invoke(IpcChannel.DB_GET_GRAPH_DATA, {})
+        if (res.nodes) {
+          const list: MentionCandidate[] = res.nodes.map((n: any) => ({
+            id: n.id,
+            title: n.title,
+            type: n.type === 'canvas' ? 'canvas' : n.type === 'visual_entity' ? 'asset' : 'note',
+            path: n.file_path || n.id
+          }))
+          setCandidates(list)
+        }
+      } catch {
+        // Ignore
+      }
+    }
+    loadCandidates()
+  }, [])
+
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newText = e.target.value
     setContent(newText)
     onActivity()
+
+    // Autocomplete detection
+    const cursorPos = e.target.selectionStart
+    const textBeforeCursor = newText.slice(0, cursorPos)
+    
+    // Check for [[ wikilink trigger
+    const wikiMatch = textBeforeCursor.match(/\[\[([^\]]*)$/)
+    if (wikiMatch) {
+      setTriggerType('[[')
+      setAutocompleteQuery(wikiMatch[1])
+      setAutocompleteOpen(true)
+    } else {
+      // Check for @ mention trigger
+      const atMatch = textBeforeCursor.match(/@([a-zA-Z0-9_\-\u00C0-\u024F]*)$/)
+      if (atMatch) {
+        setTriggerType('@')
+        setAutocompleteQuery(atMatch[1])
+        setAutocompleteOpen(true)
+      } else {
+        setAutocompleteOpen(false)
+      }
+    }
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
     saveTimeoutRef.current = setTimeout(async () => {
@@ -51,6 +103,47 @@ export const MarkdownEditor: React.FC<Props> = ({
     }, 300)
   }
 
+  const handleSelectCandidate = (candidate: MentionCandidate) => {
+    if (!textareaRef.current) return
+    const textarea = textareaRef.current
+    const cursorPos = textarea.selectionStart
+    const textBefore = content.slice(0, cursorPos)
+    const textAfter = content.slice(cursorPos)
+
+    let replacement = ''
+    let triggerLength = 0
+
+    if (triggerType === '[[') {
+      const match = textBefore.match(/\[\[([^\]]*)$/)
+      if (match) {
+        triggerLength = match[0].length
+        if (candidate.type === 'asset') {
+          replacement = `[[@${candidate.id}|${candidate.title}]]`
+        } else {
+          replacement = `[[${candidate.title}]]`
+        }
+      }
+    } else {
+      const match = textBefore.match(/@([a-zA-Z0-9_\-\u00C0-\u024F]*)$/)
+      if (match) {
+        triggerLength = match[0].length
+        replacement = `@${candidate.title} `
+      }
+    }
+
+    const newContent = textBefore.slice(0, textBefore.length - triggerLength) + replacement + textAfter
+    setContent(newContent)
+    onContentChanged(newContent)
+    setAutocompleteOpen(false)
+
+    // Re-focus and set cursor position
+    setTimeout(() => {
+      textarea.focus()
+      const newPos = textBefore.length - triggerLength + replacement.length
+      textarea.setSelectionRange(newPos, newPos)
+    }, 10)
+  }
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
   }
@@ -61,7 +154,7 @@ export const MarkdownEditor: React.FC<Props> = ({
       const rawData = e.dataTransfer.getData('application/x-cogni-entity')
       if (rawData) {
         const payload = JSON.parse(rawData)
-        const backlinkTag = `[[${payload.entityId}|${payload.title}]]`
+        const backlinkTag = `[[@${payload.entityId}|${payload.title}]]`
         const newText = content + `\n\n- Powiązany obiekt: ${backlinkTag}\n`
         setContent(newText)
         onContentChanged(newText)
@@ -120,27 +213,34 @@ export const MarkdownEditor: React.FC<Props> = ({
         }
       }
 
-      const parts = line.split(/(\[\[@[a-zA-Z0-9_\-\|]+\]\]|\[\[[a-zA-Z0-9_\-\s\/\|]+\]\]|#[a-zA-Z0-9_\-]+)/g)
+      const parts = line.split(/(\[\[@[a-zA-Z0-9_\-\|]+\]\]|\[\[[a-zA-Z0-9_\-\s\/\|]+\]\]|#[a-zA-Z0-9_\-]+|@[a-zA-Z0-9_\-\u00C0-\u024F]+)/g)
 
       return (
         <p key={idx} className="min-h-[1.4rem] my-1.5 text-xs text-[#d4d4d8] leading-relaxed">
           {parts.map((part, pIdx) => {
-            if (part.startsWith('[[@entity_')) {
+            if (part.startsWith('[[@entity_') || (part.startsWith('[[@') && part.endsWith(']]'))) {
               const clean = part.slice(2, -2)
               const [entId, label] = clean.split('|')
+              const cleanId = entId.startsWith('@') ? entId.slice(1) : entId
               return (
                 <span
                   key={pIdx}
+                  onClick={() => onNavigatePath && onNavigatePath(cleanId)}
                   onMouseEnter={async (e) => {
                     const rect = e.currentTarget.getBoundingClientRect()
-                    const res = await window.electronAPI.invoke(IpcChannel.ASSET_GET_ENTITY, { entityId: entId })
-                    setHoverEntity({ entity: res.entity, x: rect.left, y: rect.bottom + 6 })
+                    try {
+                      const res = await window.electronAPI.invoke(IpcChannel.ASSET_GET_ENTITY, { entityId: cleanId })
+                      setHoverEntity({ entity: res.entity, x: rect.left, y: rect.bottom + 6 })
+                    } catch {
+                      // Ignore
+                    }
                   }}
                   onMouseLeave={() => setHoverEntity(null)}
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#27272a] text-[#c084fc] border border-[#a855f7]/30 text-[11px] font-medium cursor-pointer hover:border-[#a855f7] hover:bg-[#3f3f46] transition-all"
+                  title={`Zasób: ${label || cleanId}`}
                 >
                   <User className="w-3 h-3 text-[#c084fc]" />
-                  <span>{label || entId}</span>
+                  <span>{label || cleanId}</span>
                 </span>
               )
             }
@@ -151,10 +251,27 @@ export const MarkdownEditor: React.FC<Props> = ({
               return (
                 <span
                   key={pIdx}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#27272a] text-[#38bdf8] border border-[#38bdf8]/30 text-[11px] font-medium cursor-pointer hover:border-[#38bdf8] hover:bg-[#3f3f46] transition-all"
+                  onClick={() => onNavigatePath && onNavigatePath(targetNote)}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#38bdf8]/15 text-[#38bdf8] border border-[#38bdf8]/35 text-[11px] font-semibold cursor-pointer hover:border-[#38bdf8] hover:bg-[#38bdf8]/25 transition-all shadow-sm"
+                  title={`Przejdź do: ${targetNote}`}
                 >
                   <FileText className="w-3 h-3 text-[#38bdf8]" />
                   <span>{label || targetNote}</span>
+                </span>
+              )
+            }
+
+            if (part.startsWith('@') && part.length > 1) {
+              const cleanMention = part.slice(1)
+              return (
+                <span
+                  key={pIdx}
+                  onClick={() => onNavigatePath && onNavigatePath(cleanMention)}
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/35 text-[11px] font-medium cursor-pointer hover:bg-[#10b981]/25 transition-all"
+                  title={`Wzmianka: ${cleanMention}`}
+                >
+                  <AtSign className="w-2.5 h-2.5" />
+                  <span>{cleanMention}</span>
                 </span>
               )
             }
@@ -163,7 +280,7 @@ export const MarkdownEditor: React.FC<Props> = ({
               return (
                 <span
                   key={pIdx}
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#18181b] text-[#10b981] text-[10px] font-mono border border-[#10b981]/30 font-medium"
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#18181b] text-[#f59e0b] text-[10px] font-mono border border-[#f59e0b]/30 font-medium"
                 >
                   <Tag className="w-2.5 h-2.5" />
                   <span>{part.slice(1)}</span>
@@ -249,17 +366,31 @@ export const MarkdownEditor: React.FC<Props> = ({
       </div>
 
       {/* Editor Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         {/* Editor Area (Left in Split) */}
         {(previewMode === 'edit' || previewMode === 'split') && (
-          <div className={`h-full bg-[#0c0d10] overflow-y-auto ${previewMode === 'split' ? 'w-1/2 border-r border-[#27272a]/80' : 'w-full'}`}>
-            <div className="max-w-3xl mx-auto w-full h-full p-6 md:p-8">
+          <div className={`h-full bg-[#0c0d10] overflow-y-auto relative ${previewMode === 'split' ? 'w-1/2 border-r border-[#27272a]/80' : 'w-full'}`}>
+            <div className="max-w-3xl mx-auto w-full h-full p-6 md:p-8 relative">
               <textarea
+                ref={textareaRef}
                 value={content}
                 onChange={handleChange}
-                placeholder="Zacznij pisać... Użyj nagłówków # Tytuł, linków [[Notatka]], encji [[@entity_id|Nazwa]], tagów #tag oraz fiszek #test [Pytanie]|[Odpowiedź]..."
+                placeholder="Zacznij pisać... Użyj wikilinków [[Notatka]], encji [[@entity_id|Nazwa]], @wzmianek, tagów #tag oraz fiszek #test [Pytanie]|[Odpowiedź]..."
                 className="w-full h-full bg-transparent text-[#f4f4f5] font-mono text-xs focus:outline-none resize-none leading-relaxed placeholder-[#52525b]"
               />
+
+              {/* Autocomplete Popover */}
+              {autocompleteOpen && (
+                <MentionAutocomplete
+                  isOpen={autocompleteOpen}
+                  query={autocompleteQuery}
+                  triggerChar={triggerType}
+                  candidates={candidates}
+                  position={{ top: 60, left: 40 }}
+                  onSelect={handleSelectCandidate}
+                  onClose={() => setAutocompleteOpen(false)}
+                />
+              )}
             </div>
           </div>
         )}
@@ -292,3 +423,4 @@ export const MarkdownEditor: React.FC<Props> = ({
     </div>
   )
 }
+

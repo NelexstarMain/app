@@ -23,7 +23,7 @@ import { CommandPalette } from './components/terminal/CommandPalette'
 import { AssetDrawer } from './components/drawer/AssetDrawer'
 import { SrsReviewRunner } from './components/review/SrsReviewRunner'
 import { AnalyticsModal } from './components/analytics/AnalyticsModal'
-import { ConfigEditorModal } from './components/config/ConfigEditorModal'
+import { SettingsModal } from './components/config/ConfigEditorModal'
 
 interface OpenTab {
   id: string
@@ -621,6 +621,16 @@ export const App: React.FC = () => {
               <KnowledgeGraphViewport
                 sessionCreatedNodeIds={sessionCtx.createdNodeIds}
                 sessionCreatedEdgeIds={sessionCtx.createdEdgeIds}
+                onNodeClick={(nodeId) => {
+                  const cleanId = nodeId.includes('#') ? nodeId.split('#')[0] : nodeId
+                  const resolvedPath = cleanId.includes('.') ? cleanId : `${cleanId}.md`
+                  handleOpenFile({
+                    name: resolvedPath.split('/').pop() || resolvedPath,
+                    relativePath: resolvedPath,
+                    type: 'file',
+                    updatedAt: Date.now()
+                  })
+                }}
                 onActivity={() => sessionManagerRef.current.registerActivity()}
               />
             ) : activeType === 'canvas' && canvasDoc ? (
@@ -655,6 +665,17 @@ export const App: React.FC = () => {
                 initialContent={textContent}
                 onContentChanged={(newText) => setTextContent(newText)}
                 onActivity={() => sessionManagerRef.current.registerActivity()}
+                onNavigatePath={(targetPath) => {
+                  const resolvedPath = targetPath.endsWith('.md') || targetPath.endsWith('.json') || targetPath.endsWith('.canvas')
+                    ? targetPath
+                    : `${targetPath}.md`
+                  handleOpenFile({
+                    name: resolvedPath.split('/').pop() || resolvedPath,
+                    relativePath: resolvedPath,
+                    type: 'file',
+                    updatedAt: Date.now()
+                  })
+                }}
               />
             ) : activeType === 'txt' && activePath ? (
               <div className="h-full w-full bg-[#0c0d10] p-6 md:p-8 overflow-y-auto">
@@ -706,7 +727,7 @@ export const App: React.FC = () => {
       />
 
       {/* Configuration & Settings Modal (config.json) */}
-      <ConfigEditorModal
+      <SettingsModal
         isOpen={configModalOpen}
         onClose={() => setConfigModalOpen(false)}
         onConfigSaved={() => {

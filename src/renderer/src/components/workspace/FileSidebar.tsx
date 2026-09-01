@@ -283,7 +283,7 @@ export const FileSidebar: React.FC<Props> = ({
             className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#18181b] transition-colors text-left font-medium"
           >
             <Settings className="w-4 h-4 text-[#38bdf8]" />
-            <span>Konfiguracja (config.json)</span>
+            <span>Ustawienia aplikacji</span>
           </button>
         )}
       </div>

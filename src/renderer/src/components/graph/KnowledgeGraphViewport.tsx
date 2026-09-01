@@ -44,8 +44,22 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
   const animFrameRef = useRef<number | null>(null)
   const nodesRef = useRef<GraphNodeSim[]>([])
 
+  const [config, setConfig] = useState<any>(null)
+
   const loadGraph = async () => {
     try {
+      // Load config for graph colors & physics
+      const cfgRes = await window.electronAPI.invoke(IpcChannel.CONFIG_GET, undefined)
+      const graphCfg = cfgRes?.config?.graph || {
+        nodeColorNote: '#10b981',
+        nodeColorCanvas: '#38bdf8',
+        nodeColorAsset: '#c084fc',
+        edgeColor: '#3f3f46',
+        repulsionForce: 750,
+        springForce: 0.005
+      }
+      setConfig(graphCfg)
+
       const res = await window.electronAPI.invoke(IpcChannel.DB_GET_GRAPH_DATA, {})
       if (res.nodes) {
         const width = window.innerWidth
@@ -54,6 +68,13 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
         const simNodes: GraphNodeSim[] = res.nodes.map((n: any, idx: number) => {
           const angle = (idx / res.nodes.length) * Math.PI * 2
           const dist = 150 + (idx % 3) * 70
+          const color =
+            n.type === 'visual_entity'
+              ? graphCfg.nodeColorAsset || '#c084fc'
+              : n.type === 'canvas'
+              ? graphCfg.nodeColorCanvas || '#38bdf8'
+              : graphCfg.nodeColorNote || '#10b981'
+
           return {
             id: n.id,
             title: n.title,
@@ -63,7 +84,7 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
             vx: (Math.random() - 0.5) * 0.8,
             vy: (Math.random() - 0.5) * 0.8,
             radius: n.type === 'visual_entity' ? 24 : n.type === 'canvas' ? 20 : 16,
-            color: n.type === 'visual_entity' ? '#c084fc' : n.type === 'canvas' ? '#38bdf8' : '#10b981'
+            color
           }
         })
         setNodes(simNodes)
@@ -128,9 +149,9 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
     const loop = () => {
       const currentNodes = nodesRef.current
 
-      // Physics forces
-      const kRep = 700
-      const kSpring = 0.004
+      // Physics forces from config
+      const kRep = config?.repulsionForce || 750
+      const kSpring = config?.springForce || 0.005
       const restLength = 130
       const damping = 0.92
 

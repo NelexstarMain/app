@@ -1,5 +1,5 @@
 import React from 'react'
-import { Play, Pause, Square, Terminal, BarChart2, FolderTree, CheckCircle2, Circle, Clock } from 'lucide-react'
+import { Play, Pause, Square, Search, BarChart2, FolderTree, CheckCircle2, Circle, Clock } from 'lucide-react'
 import { SessionContext } from '../../../../shared/types/session'
 import { TaskTodoRecord } from '../../../../shared/types/database'
 
@@ -58,14 +58,14 @@ export const SessionHeader: React.FC<Props> = ({
         {isIdle ? (
           <button
             onClick={onOpenKickoff}
-            className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#18181b] hover:bg-[#27272a] text-[#e4e4e7] text-[11px] font-medium border border-[#3f3f46] transition-all shadow-sm group"
+            className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#141519] hover:bg-[#1f2128] text-[#e4e4e7] text-[11px] font-medium border border-[#27272a] hover:border-[#3f3f46] transition-all shadow-sm group"
           >
             <span className="w-2 h-2 rounded-full bg-[#10b981] animate-pulse" />
             <span>Sesja Skupienia</span>
           </button>
         ) : (
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-[#18181b] border border-[#3f3f46] font-mono text-[11px] text-[#f4f4f5] shadow-sm">
+            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-[#141519] border border-[#27272a] font-mono text-[11px] text-[#f4f4f5] shadow-sm">
               <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-[#10b981] animate-pulse' : 'bg-[#f59e0b]'}`} />
               <span className="font-semibold">{formatTime(sessionContext.effectiveFocusSeconds)}</span>
               <span className="text-[10px] text-[#71717a]">/ {sessionContext.plannedMinutes}m</span>
@@ -110,8 +110,8 @@ export const SessionHeader: React.FC<Props> = ({
               onClick={() => onToggleTaskComplete(t.task_id)}
               className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] border transition-all ${
                 isDone
-                  ? 'bg-[#18181b] border-[#27272a] text-[#52525b] line-through'
-                  : 'bg-[#18181b] border-[#3f3f46] text-[#f4f4f5] hover:border-[#38bdf8]'
+                  ? 'bg-[#141519] border-[#27272a] text-[#52525b] line-through'
+                  : 'bg-[#141519] border-[#27272a] text-[#f4f4f5] hover:border-[#38bdf8]'
               }`}
             >
               {isDone ? <CheckCircle2 className="w-3 h-3 text-[#10b981]" /> : <Circle className="w-3 h-3 text-[#71717a]" />}
@@ -125,11 +125,11 @@ export const SessionHeader: React.FC<Props> = ({
       <div className="flex items-center gap-1.5">
         <button
           onClick={onOpenCommandPalette}
-          className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#18181b] hover:bg-[#27272a] text-[11px] text-[#a1a1aa] hover:text-[#f4f4f5] border border-[#27272a] transition-colors"
+          className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#141519] hover:bg-[#1f2128] text-[11px] text-[#a1a1aa] hover:text-[#f4f4f5] border border-[#27272a] transition-all shadow-sm group"
+          title="Szybkie wyszukiwanie i komendy (Ctrl+K)"
         >
-          <Terminal className="w-3.5 h-3.5 text-[#38bdf8]" />
-          <span>Komendy</span>
-          <kbd className="text-[9px] bg-[#27272a] text-[#71717a] px-1 py-0.2 rounded font-mono border border-[#3f3f46]">Ctrl+K</kbd>
+          <Search className="w-3.5 h-3.5 text-[#38bdf8] group-hover:scale-105 transition-transform" />
+          <span className="font-mono text-[10px] text-[#71717a] group-hover:text-[#a1a1aa]">⌘K</span>
         </button>
 
         <button
@@ -151,3 +151,4 @@ export const SessionHeader: React.FC<Props> = ({
     </header>
   )
 }
+

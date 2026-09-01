@@ -152,7 +152,7 @@ export class DatabaseService {
     const entityRegex = /\[\[(@entity_[a-zA-Z0-9_\-]+)(?:\|([^\]]+))?\]\]/g
     let match: RegExpExecArray | null
     while ((match = entityRegex.exec(content)) !== null) {
-      const targetEntityId = match[1]
+      const targetEntityId = match[1].startsWith('@') ? match[1].slice(1) : match[1]
       const label = match[2] || 'REFERENCES'
       const edgeId = `edge_${sourceNoteId}_to_${targetEntityId}`
       this.edges.set(edgeId, {
@@ -168,13 +168,13 @@ export class DatabaseService {
       })
     }
 
-    // 3. Extract [[Note Title]]
-    const noteLinkRegex = /\[\[([a-zA-Z0-9_\-\s\/]+)(?:\|([^\]]+))?\]\]/g
+    // 3. Extract [[Note Title]] or [[Note Title|Label]]
+    const noteLinkRegex = /\[\[([a-zA-Z0-9_\-\s\/\.\u00C0-\u024F]+)(?:\|([^\]]+))?\]\]/g
     while ((match = noteLinkRegex.exec(content)) !== null) {
       const targetRaw = match[1].trim()
-      if (targetRaw.startsWith('@entity_')) continue // Already handled
-      const label = match[2] || 'LINKS_TO'
-      const edgeId = `edge_${sourceNoteId}_to_${targetRaw.replace(/\s+/g, '_')}`
+      if (targetRaw.startsWith('@entity_') || targetRaw.startsWith('@')) continue
+      const label = match[2] || 'POWIĄZANIE'
+      const edgeId = `edge_${sourceNoteId}_to_${targetRaw.replace(/[\s\/]+/g, '_')}`
       this.edges.set(edgeId, {
         edge_id: edgeId,
         source_id: sourceNoteId,
@@ -188,7 +188,26 @@ export class DatabaseService {
       })
     }
 
-    // 4. Extract #tags
+    // 4. Extract @[Mention Title] or @Word mentions
+    const mentionRegex = /(?:^|\s)@(?:\[([^\]]+)\]|([a-zA-Z0-9_\-\u00C0-\u024F]+))/g
+    while ((match = mentionRegex.exec(content)) !== null) {
+      const targetTitle = (match[1] || match[2] || '').trim()
+      if (!targetTitle) continue
+      const edgeId = `edge_${sourceNoteId}_at_${targetTitle.replace(/[\s\/]+/g, '_')}`
+      this.edges.set(edgeId, {
+        edge_id: edgeId,
+        source_id: sourceNoteId,
+        source_type: 'note',
+        target_id: targetTitle,
+        target_type: 'note',
+        relation_label: 'WZMIANKA',
+        origin_context: 'inline_link',
+        origin_canvas_id: null,
+        created_at: Date.now()
+      })
+    }
+
+    // 5. Extract #tags
     const tagRegex = /(?:^|\s)#([a-zA-Z0-9_\-]+)/g
     const extractedTags = new Set<string>()
     while ((match = tagRegex.exec(content)) !== null) {
@@ -198,7 +217,7 @@ export class DatabaseService {
     }
     this.itemTags.set(sourceNoteId, extractedTags)
 
-    // 5. Extract #test [Question] | [Answer]
+    // 6. Extract #test [Question] | [Answer]
     const testRegex = /#test\s*\[(.*?)\]\s*\|\s*\[(.*?)\]/g
     let testIdx = 0
     while ((match = testRegex.exec(content)) !== null) {
@@ -214,8 +233,8 @@ export class DatabaseService {
           question_text: q,
           answer_text: a,
           media_asset_id: null,
-          stability: 1.0,
-          difficulty: 5.0,
+          stability: 1.2,
+          difficulty: 4.8,
           repetitions: 0,
           lapses: 0,
           state: 'NEW',
@@ -247,7 +266,7 @@ export class DatabaseService {
       }
     }
 
-    // 1. Index edges
+    // 1. Index explicit arrows/connectors
     if (doc.edges) {
       for (const edge of doc.edges) {
         const edgeId = `canvas_edge_${edge.id || `${edge.fromNode}_${edge.toNode}`}`
@@ -265,7 +284,7 @@ export class DatabaseService {
       }
     }
 
-    // 2. Index canvas nodes and sync quiz cards into SRS (exclude quizzes from graph)
+    // 2. Index canvas nodes and extract implicit inline wikilinks / @ mentions inside cards
     if (doc.nodes) {
       for (const node of doc.nodes) {
         if (node.type === 'quiz_card') {
@@ -279,8 +298,8 @@ export class DatabaseService {
               question_text: node.data?.question || 'Pytanie',
               answer_text: node.data?.answer || 'Odpowiedź',
               media_asset_id: null,
-              stability: 1.0,
-              difficulty: 5.0,
+              stability: 1.2,
+              difficulty: 4.8,
               repetitions: 0,
               lapses: 0,
               state: 'NEW',
@@ -320,6 +339,44 @@ export class DatabaseService {
           created_at: Date.now(),
           updated_at: Date.now()
         })
+
+        // Also extract inline wikilinks [[...]] and @mentions inside this canvas card
+        const cardText = `${node.data?.markdown || ''} ${node.data?.text || ''} ${node.data?.label || ''}`
+        const wikiRegex = /\[\[([a-zA-Z0-9_\-\s\/\.\u00C0-\u024F]+)(?:\|([^\]]+))?\]\]/g
+        let m: RegExpExecArray | null
+        while ((m = wikiRegex.exec(cardText)) !== null) {
+          const target = m[1].trim()
+          const edgeId = `edge_canvas_${node.id}_to_${target.replace(/[\s\/]+/g, '_')}`
+          this.edges.set(edgeId, {
+            edge_id: edgeId,
+            source_id: node.id,
+            source_type: 'note',
+            target_id: target,
+            target_type: 'note',
+            relation_label: m[2] || 'POWIĄZANIE',
+            origin_context: 'inline_link',
+            origin_canvas_id: canvasId,
+            created_at: Date.now()
+          })
+        }
+
+        const atRegex = /(?:^|\s)@(?:\[([^\]]+)\]|([a-zA-Z0-9_\-\u00C0-\u024F]+))/g
+        while ((m = atRegex.exec(cardText)) !== null) {
+          const target = (m[1] || m[2] || '').trim()
+          if (!target) continue
+          const edgeId = `edge_canvas_${node.id}_at_${target.replace(/[\s\/]+/g, '_')}`
+          this.edges.set(edgeId, {
+            edge_id: edgeId,
+            source_id: node.id,
+            source_type: 'note',
+            target_id: target,
+            target_type: 'note',
+            relation_label: 'WZMIANKA',
+            origin_context: 'inline_link',
+            origin_canvas_id: canvasId,
+            created_at: Date.now()
+          })
+        }
       }
     }
 
