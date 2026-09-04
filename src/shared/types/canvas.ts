@@ -95,6 +95,7 @@ export interface CanvasEdge {
   color?: string
   style?: EdgeStyle
   bidirectional?: boolean
+  strokeWidth?: number
 }
 
 export interface CanvasViewport {

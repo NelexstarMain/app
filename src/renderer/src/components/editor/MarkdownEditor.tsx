@@ -1,5 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { FileText, Eye, Edit3, Sparkles, Tag, HelpCircle, User, ChevronRight, Check, AtSign } from 'lucide-react'
+import {
+  FileText,
+  Eye,
+  Edit3,
+  Columns,
+  Tag,
+  HelpCircle,
+  User,
+  ChevronRight,
+  Check,
+  AtSign,
+  List,
+  Link2,
+  PanelRight
+} from 'lucide-react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
 import { VisualEntityRecord } from '../../../../shared/types/database'
 import { MentionAutocomplete, MentionCandidate } from '../canvas/MentionAutocomplete'
@@ -24,6 +38,10 @@ export const MarkdownEditor: React.FC<Props> = ({
   const [isSaving, setIsSaving] = useState(false)
   const [hoverEntity, setHoverEntity] = useState<{ entity: VisualEntityRecord | null; x: number; y: number } | null>(null)
   
+  // 3-Column Architecture State
+  const [inspectorOpen, setInspectorOpen] = useState(true)
+  const gutterRef = useRef<HTMLDivElement>(null)
+
   // Autocomplete state
   const [autocompleteOpen, setAutocompleteOpen] = useState(false)
   const [autocompleteQuery, setAutocompleteQuery] = useState('')
@@ -35,6 +53,9 @@ export const MarkdownEditor: React.FC<Props> = ({
 
   useEffect(() => {
     setContent(initialContent)
+    if (textareaRef.current) {
+      textareaRef.current.focus()
+    }
   }, [relativePath, initialContent])
 
   // Load workspace candidates for autocomplete
@@ -168,27 +189,71 @@ export const MarkdownEditor: React.FC<Props> = ({
   // Parse path into clickable breadcrumbs
   const pathParts = relativePath.split('/')
 
+  // Live Table of Contents
+  const tocItems = React.useMemo(() => {
+    const items: Array<{ level: number; text: string; lineIndex: number }> = []
+    content.split('\n').forEach((line, idx) => {
+      if (line.startsWith('### ')) {
+        items.push({ level: 3, text: line.slice(4).trim(), lineIndex: idx })
+      } else if (line.startsWith('## ')) {
+        items.push({ level: 2, text: line.slice(3).trim(), lineIndex: idx })
+      } else if (line.startsWith('# ')) {
+        items.push({ level: 1, text: line.slice(2).trim(), lineIndex: idx })
+      }
+    })
+    return items
+  }, [content])
+
+  // Document Backlinks and outgoing links
+  const documentLinks = React.useMemo(() => {
+    const wikiMatches = Array.from(content.matchAll(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g)).map((m) => m[1])
+    const atMatches = Array.from(content.matchAll(/@([a-zA-Z0-9_\-\u00C0-\u024F]+)/g)).map((m) => m[1])
+    return {
+      outgoing: Array.from(new Set([...wikiMatches, ...atMatches])),
+      incoming: candidates.filter((c) => c.title !== relativePath && c.path !== relativePath)
+    }
+  }, [content, relativePath, candidates])
+
+  const handleEditorScroll = () => {
+    if (textareaRef.current && gutterRef.current) {
+      gutterRef.current.scrollTop = textareaRef.current.scrollTop
+    }
+  }
+
+  const jumpToLine = (lineIndex: number) => {
+    if (!textareaRef.current) return
+    const lines = content.split('\n')
+    let charPos = 0
+    for (let i = 0; i < lineIndex && i < lines.length; i++) {
+      charPos += lines[i].length + 1
+    }
+    textareaRef.current.focus()
+    textareaRef.current.setSelectionRange(charPos, charPos)
+    const lineHeight = 19.5
+    textareaRef.current.scrollTop = Math.max(0, lineIndex * lineHeight - 40)
+  }
+
   const renderASTPreview = (rawText: string) => {
     const lines = rawText.split('\n')
 
     return lines.map((line, idx) => {
       if (line.startsWith('# ')) {
         return (
-          <h1 key={idx} className="text-2xl font-bold text-[#f4f4f5] tracking-tight mb-4 mt-2 pb-2 border-b border-[#27272a]">
+          <h1 key={idx} className="text-2xl font-bold text-[#f4f4f5] tracking-tight mb-4 mt-2 pb-2 border-b border-[#422066]">
             {line.slice(2)}
           </h1>
         )
       }
       if (line.startsWith('## ')) {
         return (
-          <h2 key={idx} className="text-lg font-semibold text-[#38bdf8] mb-2 mt-5 tracking-tight">
+          <h2 key={idx} className="text-lg font-semibold text-[#c084fc] mb-2 mt-5 tracking-tight">
             {line.slice(3)}
           </h2>
         )
       }
       if (line.startsWith('### ')) {
         return (
-          <h3 key={idx} className="text-sm font-semibold text-[#f59e0b] mb-1.5 mt-3">
+          <h3 key={idx} className="text-sm font-semibold text-[#a855f7] mb-1.5 mt-3">
             {line.slice(4)}
           </h3>
         )
@@ -198,14 +263,14 @@ export const MarkdownEditor: React.FC<Props> = ({
         const testMatch = /#test\s*\[(.*?)\]\s*\|\s*\[(.*?)\]/.exec(line)
         if (testMatch) {
           return (
-            <div key={idx} className="my-3 p-3.5 rounded-xl bg-[#18181b] border border-[#f59e0b]/30 flex items-start gap-3 text-xs shadow-md">
-              <HelpCircle className="w-4 h-4 text-[#f59e0b] shrink-0 mt-0.5" />
+            <div key={idx} className="my-3 p-3.5 rounded-[7px] bg-[#101322] border border-[#422066] flex items-start gap-3 text-xs shadow-md specular-border">
+              <HelpCircle className="w-4 h-4 text-[#a855f7] shrink-0 mt-0.5" />
               <div className="flex-1">
-                <div className="font-semibold text-[#f59e0b] text-[11px] uppercase tracking-wider mb-1">Active Recall (#test)</div>
+                <div className="font-semibold text-[#c084fc] text-[11px] uppercase tracking-wider mb-1">Active Recall (#test)</div>
                 <div className="text-[#f4f4f5] font-medium text-xs mb-1.5">{testMatch[1]}</div>
-                <div className="text-[#a1a1aa] text-[11px] pt-1.5 border-t border-[#27272a] flex items-center gap-1.5">
+                <div className="text-[#8b87a8] text-[11px] pt-1.5 border-t border-[#422066] flex items-center gap-1.5">
                   <span>Odpowiedź:</span>
-                  <span className="font-mono text-[#10b981] font-semibold bg-[#27272a]/60 px-1.5 py-0.5 rounded">{testMatch[2]}</span>
+                  <span className="font-mono text-[#c084fc] font-semibold bg-[#15182a] px-1.5 py-0.5 rounded-[3px] border border-[#422066]">{testMatch[2]}</span>
                 </div>
               </div>
             </div>
@@ -236,7 +301,7 @@ export const MarkdownEditor: React.FC<Props> = ({
                     }
                   }}
                   onMouseLeave={() => setHoverEntity(null)}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#27272a] text-[#c084fc] border border-[#a855f7]/30 text-[11px] font-medium cursor-pointer hover:border-[#a855f7] hover:bg-[#3f3f46] transition-all"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-[3px] bg-[#15182a] text-[#c084fc] border border-[#422066] text-[11px] font-medium cursor-pointer hover:border-[#a855f7] hover:bg-[#25143a] transition-all"
                   title={`Zasób: ${label || cleanId}`}
                 >
                   <User className="w-3 h-3 text-[#c084fc]" />
@@ -252,7 +317,7 @@ export const MarkdownEditor: React.FC<Props> = ({
                 <span
                   key={pIdx}
                   onClick={() => onNavigatePath && onNavigatePath(targetNote)}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#a855f7]/15 text-[#c084fc] border border-[#a855f7]/40 text-[11px] font-semibold cursor-pointer hover:border-[#a855f7] hover:bg-[#a855f7]/25 transition-all shadow-sm"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-[3px] bg-[#25143a] text-[#c084fc] border border-[#422066] text-[11px] font-semibold cursor-pointer hover:border-[#a855f7] hover:bg-[#341b52] transition-all shadow-sm"
                   title={`Przejdź do: ${targetNote}`}
                 >
                   <FileText className="w-3 h-3 text-[#c084fc]" />
@@ -267,7 +332,7 @@ export const MarkdownEditor: React.FC<Props> = ({
                 <span
                   key={pIdx}
                   onClick={() => onNavigatePath && onNavigatePath(cleanMention)}
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#818cf8]/15 text-[#818cf8] border border-[#818cf8]/40 text-[11px] font-medium cursor-pointer hover:bg-[#818cf8]/25 transition-all"
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded-[3px] bg-[#25143a] text-[#c084fc] border border-[#422066] text-[11px] font-medium cursor-pointer hover:border-[#a855f7] transition-all"
                   title={`Wzmianka: ${cleanMention}`}
                 >
                   <AtSign className="w-2.5 h-2.5" />
@@ -280,7 +345,7 @@ export const MarkdownEditor: React.FC<Props> = ({
               return (
                 <span
                   key={pIdx}
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded-md bg-[#16142e] text-[#c084fc] text-[10px] font-mono border border-[#a855f7]/30 font-medium"
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded-[3px] bg-[#15182a] text-[#c084fc] text-[10px] font-mono border border-[#422066] font-medium"
                 >
                   <Tag className="w-2.5 h-2.5" />
                   <span>{part.slice(1)}</span>
@@ -299,12 +364,12 @@ export const MarkdownEditor: React.FC<Props> = ({
     <div
       onDragOver={handleDragOver}
       onDrop={handleDrop}
-      className="h-full flex flex-col bg-[#070913] select-text"
+      className="h-full flex flex-col bg-[#06070d] select-text"
     >
-      {/* Top Breadcrumbs & View Switcher Bar */}
-      <div className="h-9 bg-[#0f1123] border-b border-[#28254c] flex items-center justify-between px-4 select-none text-xs">
+      {/* Top Breadcrumbs & View Switcher Bar (34px) */}
+      <div className="h-[34px] bg-[#0a0c16] border-b border-[#422066] flex items-center justify-between px-3 select-none text-xs">
         {/* Clickable Breadcrumbs */}
-        <div className="flex items-center gap-1.5 text-xs text-[#94a3b8]">
+        <div className="flex items-center gap-1.5 text-xs text-[#8b87a8]">
           <FileText className="w-3.5 h-3.5 text-[#c084fc] shrink-0 mr-0.5" />
           {pathParts.map((part, index) => {
             const isLast = index === pathParts.length - 1
@@ -312,13 +377,13 @@ export const MarkdownEditor: React.FC<Props> = ({
               <React.Fragment key={index}>
                 <span
                   onClick={() => onNavigatePath && onNavigatePath(pathParts.slice(0, index + 1).join('/'))}
-                  className={`hover:text-[#f8fafc] transition-colors cursor-pointer ${
-                    isLast ? 'text-[#f8fafc] font-semibold' : 'text-[#94a3b8]'
+                  className={`hover:text-[#f4f4f5] transition-colors cursor-pointer ${
+                    isLast ? 'text-[#f4f4f5] font-semibold' : 'text-[#8b87a8]'
                   }`}
                 >
                   {part}
                 </span>
-                {!isLast && <ChevronRight className="w-3 h-3 text-[#64748b] shrink-0" />}
+                {!isLast && <ChevronRight className="w-3 h-3 text-[#443e68] shrink-0" />}
               </React.Fragment>
             )
           })}
@@ -330,82 +395,168 @@ export const MarkdownEditor: React.FC<Props> = ({
           ) : null}
         </div>
 
-        {/* Mode Toggles */}
-        <div className="flex items-center gap-1 bg-[#16142e] p-0.5 rounded-lg border border-[#28254c]">
+        {/* Mode Toggles & Inspector Toggle */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-[#15182a] p-0.5 rounded-[5px] border border-[#422066]">
+            <button
+              onClick={() => setPreviewMode('edit')}
+              className={`px-2 py-0.5 rounded-[3px] text-[11px] flex items-center gap-1 transition-colors ${
+                previewMode === 'edit'
+                  ? 'bg-[#25143a] text-[#c084fc] font-semibold shadow-sm border border-[#422066]'
+                  : 'text-[#8b87a8] hover:text-[#f4f4f5]'
+              }`}
+              title="Tylko edytor"
+            >
+              <Edit3 className="w-3 h-3" />
+              <span>Edytor</span>
+            </button>
+            <button
+              onClick={() => setPreviewMode('split')}
+              className={`px-2 py-0.5 rounded-[3px] text-[11px] flex items-center gap-1 transition-colors ${
+                previewMode === 'split'
+                  ? 'bg-[#25143a] text-[#c084fc] font-semibold shadow-sm border border-[#422066]'
+                  : 'text-[#8b87a8] hover:text-[#f4f4f5]'
+              }`}
+              title="Widok podzielony"
+            >
+              <Columns className="w-3 h-3" />
+              <span>Live Split</span>
+            </button>
+            <button
+              onClick={() => setPreviewMode('preview')}
+              className={`px-2 py-0.5 rounded-[3px] text-[11px] flex items-center gap-1 transition-colors ${
+                previewMode === 'preview'
+                  ? 'bg-[#25143a] text-[#c084fc] font-semibold shadow-sm border border-[#422066]'
+                  : 'text-[#8b87a8] hover:text-[#f4f4f5]'
+              }`}
+              title="Tylko podgląd czytania"
+            >
+              <Eye className="w-3 h-3" />
+              <span>Czytanie</span>
+            </button>
+          </div>
+
           <button
-            onClick={() => setPreviewMode('edit')}
-            className={`px-2 py-0.5 rounded-md text-[11px] flex items-center gap-1 transition-colors ${
-              previewMode === 'edit'
-                ? 'bg-[#25123e] text-[#c084fc] font-semibold shadow-sm border border-[#a855f7]/40'
-                : 'text-[#94a3b8] hover:text-[#f8fafc]'
+            onClick={() => setInspectorOpen(!inspectorOpen)}
+            className={`px-2 py-0.5 rounded-[5px] text-[11px] flex items-center gap-1 border transition-colors ${
+              inspectorOpen
+                ? 'bg-[#25143a] border-[#422066] text-[#c084fc]'
+                : 'bg-[#15182a] border-[#422066] text-[#8b87a8] hover:text-[#f4f4f5]'
             }`}
-            title="Tylko edytor"
+            title="Przełącz Inspektor Dokumentu"
           >
-            <Edit3 className="w-3 h-3" />
-            <span>Edytor</span>
-          </button>
-          <button
-            onClick={() => setPreviewMode('split')}
-            className={`px-2 py-0.5 rounded-md text-[11px] flex items-center gap-1 transition-colors ${
-              previewMode === 'split'
-                ? 'bg-[#25123e] text-[#c084fc] font-semibold shadow-sm border border-[#a855f7]/40'
-                : 'text-[#94a3b8] hover:text-[#f8fafc]'
-            }`}
-            title="Widok podzielony"
-          >
-            <Sparkles className="w-3 h-3" />
-            <span>Live Split</span>
-          </button>
-          <button
-            onClick={() => setPreviewMode('preview')}
-            className={`px-2 py-0.5 rounded-md text-[11px] flex items-center gap-1 transition-colors ${
-              previewMode === 'preview'
-                ? 'bg-[#25123e] text-[#c084fc] font-semibold shadow-sm border border-[#a855f7]/40'
-                : 'text-[#94a3b8] hover:text-[#f8fafc]'
-            }`}
-            title="Tylko podgląd czytania"
-          >
-            <Eye className="w-3 h-3" />
-            <span>Czytanie</span>
+            <PanelRight className="w-3 h-3" />
+            <span>Inspektor</span>
           </button>
         </div>
       </div>
 
-      {/* Editor Main Content Area */}
+      {/* Editor Main 3-Column Content Area */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Editor Area (Left in Split) */}
-        {(previewMode === 'edit' || previewMode === 'split') && (
-          <div className={`h-full bg-[#0c0d10] overflow-y-auto relative ${previewMode === 'split' ? 'w-1/2 border-r border-[#27272a]/80' : 'w-full'}`}>
-            <div className="max-w-3xl mx-auto w-full h-full p-6 md:p-8 relative">
-              <textarea
-                ref={textareaRef}
-                value={content}
-                onChange={handleChange}
-                placeholder="Zacznij pisać... Użyj wikilinków [[Notatka]], encji [[@entity_id|Nazwa]], @wzmianek, tagów #tag oraz fiszek #test [Pytanie]|[Odpowiedź]..."
-                className="w-full h-full bg-transparent text-[#f4f4f5] font-mono text-xs focus:outline-none resize-none leading-relaxed placeholder-[#52525b]"
-              />
+        {/* Column 1 & 2: Editor (Gutter + Textarea) and/or Split Preview */}
+        <div className={`flex-1 flex overflow-hidden ${inspectorOpen ? 'border-r border-[#422066]' : ''}`}>
+          {/* Editor Area (Left in Split) */}
+          {(previewMode === 'edit' || previewMode === 'split') && (
+            <div className={`h-full bg-[#06070d] flex relative overflow-hidden ${previewMode === 'split' ? 'w-1/2 border-r border-[#422066]' : 'w-full'}`}>
+              {/* Col 1: Gutter 40px mono line numbers */}
+              <div
+                ref={gutterRef}
+                className="w-10 shrink-0 bg-[#0a0c16] border-r border-[#422066] py-6 md:py-8 select-none text-right pr-2 text-xs font-mono text-[#443e68] overflow-hidden leading-relaxed"
+              >
+                {Array.from({ length: Math.max(1, content.split('\n').length) }, (_, i) => (
+                  <div key={i}>{i + 1}</div>
+                ))}
+              </div>
 
-              {/* Autocomplete Popover */}
-              {autocompleteOpen && (
-                <MentionAutocomplete
-                  isOpen={autocompleteOpen}
-                  query={autocompleteQuery}
-                  triggerChar={triggerType}
-                  candidates={candidates}
-                  position={{ top: 60, left: 40 }}
-                  onSelect={handleSelectCandidate}
-                  onClose={() => setAutocompleteOpen(false)}
+              {/* Col 2 Textarea */}
+              <div className="flex-1 h-full relative overflow-hidden">
+                <textarea
+                  ref={textareaRef}
+                  data-editor="true"
+                  autoFocus
+                  value={content}
+                  onChange={handleChange}
+                  onScroll={handleEditorScroll}
+                  placeholder="Zacznij pisać... Użyj wikilinków [[Notatka]], encji [[@entity_id|Nazwa]], @wzmianek, tagów #tag oraz fiszek #test [Pytanie]|[Odpowiedź]..."
+                  className="w-full h-full p-6 md:p-8 bg-transparent text-[#f4f4f5] font-mono text-xs focus:outline-none resize-none leading-relaxed placeholder-[#8b87a8]/50"
                 />
+
+                {/* Autocomplete Popover */}
+                {autocompleteOpen && (
+                  <MentionAutocomplete
+                    isOpen={autocompleteOpen}
+                    query={autocompleteQuery}
+                    triggerChar={triggerType}
+                    candidates={candidates}
+                    position={{ top: 60, left: 40 }}
+                    onSelect={handleSelectCandidate}
+                    onClose={() => setAutocompleteOpen(false)}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Live Preview Area (Right in Split) */}
+          {(previewMode === 'preview' || previewMode === 'split') && (
+            <div className={`h-full bg-[#101322] overflow-y-auto ${previewMode === 'split' ? 'w-1/2' : 'w-full'}`}>
+              <div className="max-w-3xl mx-auto w-full p-6 md:p-8">
+                {renderASTPreview(content)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Column 3: Document Inspector (TOC & Backlinks Drawer) */}
+        {inspectorOpen && (
+          <div className="w-64 shrink-0 bg-[#0a0c16] h-full flex flex-col text-xs overflow-hidden select-none">
+            {/* TOC Section */}
+            <div className="p-3 border-b border-[#422066] flex items-center gap-1.5 font-semibold text-[#f4f4f5]">
+              <List className="w-3.5 h-3.5 text-[#a855f7]" />
+              <span>Spis treści (TOC)</span>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {tocItems.length === 0 ? (
+                <div className="text-[11px] text-[#8b87a8] italic p-2">
+                  Brak nagłówków. Użyj #, ## lub ### aby dodać sekcję.
+                </div>
+              ) : (
+                tocItems.map((item, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => jumpToLine(item.lineIndex)}
+                    style={{ paddingLeft: `${(item.level - 1) * 12 + 6}px` }}
+                    className="w-full text-left py-1 pr-2 rounded-[3px] text-[11px] text-[#8b87a8] hover:text-[#c084fc] hover:bg-[#15182a] truncate transition-colors flex items-center gap-1"
+                  >
+                    <span className="text-[9px] font-mono text-[#443e68]">H{item.level}</span>
+                    <span className="truncate">{item.text}</span>
+                  </button>
+                ))
               )}
             </div>
-          </div>
-        )}
 
-        {/* Live Preview Area (Right in Split) */}
-        {(previewMode === 'preview' || previewMode === 'split') && (
-          <div className={`h-full bg-[#111216] overflow-y-auto ${previewMode === 'split' ? 'w-1/2' : 'w-full'}`}>
-            <div className="max-w-3xl mx-auto w-full p-6 md:p-8">
-              {renderASTPreview(content)}
+            {/* Backlinks Section */}
+            <div className="p-3 border-t border-b border-[#422066] flex items-center gap-1.5 font-semibold text-[#f4f4f5]">
+              <Link2 className="w-3.5 h-3.5 text-[#c084fc]" />
+              <span>Powiązania i linki ({documentLinks.outgoing.length})</span>
+            </div>
+            <div className="h-44 overflow-y-auto p-2 space-y-1">
+              {documentLinks.outgoing.length === 0 ? (
+                <div className="text-[11px] text-[#8b87a8] italic p-2">
+                  Brak wychodzących linków. Użyj [[Nazwa]] lub @wzmianka!
+                </div>
+              ) : (
+                documentLinks.outgoing.map((link, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => onNavigatePath && onNavigatePath(link)}
+                    className="p-1.5 rounded-[3px] bg-[#15182a] border border-[#422066] text-[#c084fc] hover:border-[#a855f7] cursor-pointer text-[11px] truncate flex items-center gap-1.5 transition-colors"
+                  >
+                    <FileText className="w-3 h-3 text-[#a855f7] shrink-0" />
+                    <span className="truncate">{link}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -415,13 +566,13 @@ export const MarkdownEditor: React.FC<Props> = ({
       {hoverEntity && hoverEntity.entity && (
         <div
           style={{ top: `${hoverEntity.y}px`, left: `${hoverEntity.x}px` }}
-          className="fixed z-50 w-72 p-3.5 rounded-xl bg-[#18181b] border border-[#3f3f46] shadow-2xl text-xs backdrop-blur-md"
+          className="fixed z-50 w-72 p-3.5 rounded-[7px] bg-[#101322] border border-[#422066] shadow-2xl text-xs backdrop-blur-md specular-border"
         >
-          <div className="flex items-center gap-2 mb-1.5 pb-1.5 border-b border-[#27272a]">
+          <div className="flex items-center gap-2 mb-1.5 pb-1.5 border-b border-[#422066]">
             <User className="w-4 h-4 text-[#c084fc]" />
             <span className="font-semibold text-[#f4f4f5]">{hoverEntity.entity.title}</span>
           </div>
-          <p className="text-[11px] text-[#a1a1aa] leading-relaxed">
+          <p className="text-[11px] text-[#8b87a8] leading-relaxed">
             {hoverEntity.entity.description_snippet || 'Obiekt bazy wiedzy'}
           </p>
         </div>

@@ -52,16 +52,16 @@ export interface AppConfig {
 export const DEFAULT_APP_CONFIG: AppConfig = {
   version: '1.2.0',
   theme: {
-    bgApp: '#070913', // Ciemny granat
-    bgPanel: '#0f1123', // Ciemny granat/fiolet
-    bgCard: '#16142e', // Ciemny fiolet
-    borderColor: '#28254c', // Fioletowo-granatowa ramka
-    accentColor: '#a855f7', // Jasny fiolet
-    accentGlow: '#c084fc', // Jasny fiolet neon
-    iconColor: '#a5b4fc', // Jasny lawendowy szary
-    iconActiveColor: '#c084fc', // Jasny fiolet
+    bgApp: '#06070d', // Warstwa 0: Ciemny granat baza
+    bgPanel: '#0a0c16', // Warstwa 1: Ciemny granat chrome (Titlebar, Sidebar, Status bar)
+    bgCard: '#101322', // Warstwa 2: Ciemny fiolet (Panele, Karty, Modale)
+    borderColor: '#422066', // Precyzyjna ramka 1px
+    accentColor: '#a855f7', // Jasny fiolet akcent
+    accentGlow: '#c084fc', // Jasny fiolet neon / groty / focus
+    iconColor: '#94a3b8', // Stonowany tekst i ikony
+    iconActiveColor: '#c084fc', // Jasny fiolet aktywny
     uiScale: 1.0,
-    borderRadius: 'medium'
+    borderRadius: 'small'
   },
   editor: {
     defaultFontSize: 'medium',

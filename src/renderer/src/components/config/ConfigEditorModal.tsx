@@ -13,13 +13,14 @@ import {
   AlertTriangle,
   Plus,
   Trash2,
-  Sparkles,
+  PenTool,
   Sliders,
   Type,
   Maximize2
 } from 'lucide-react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
 import { AppConfig, DEFAULT_APP_CONFIG, StickyPaletteColor } from '../../../../shared/types/config'
+import { applyTheme } from '../../theme/themeManager'
 
 interface Props {
   isOpen: boolean
@@ -67,16 +68,16 @@ const RgbColorControl: React.FC<{
   }
 
   const PRESETS = [
-    '#070913', '#0b112c', '#170c28', '#25123e', '#101438',
-    '#a855f7', '#c084fc', '#7c3aed', '#6366f1', '#38bdf8', '#f8fafc'
+    '#06070d', '#0a0c16', '#101322', '#15182a', '#25143a',
+    '#422066', '#a855f7', '#c084fc', '#f8fafc'
   ]
 
   return (
-    <div className="p-3.5 rounded-2xl bg-[#0f1123]/90 border border-[#28254c] space-y-2.5">
+    <div className="p-3 rounded-[7px] bg-[#101322] border border-[#422066] space-y-2">
       <div className="flex items-center justify-between">
         <div>
           <div className="font-semibold text-xs text-[#f8fafc]">{label}</div>
-          {description && <div className="text-[10px] text-[#94a3b8]">{description}</div>}
+          {description && <div className="text-[10px] text-[#8b87a8]">{description}</div>}
         </div>
 
         {/* Color Swatch & Hex Input */}
@@ -86,7 +87,7 @@ const RgbColorControl: React.FC<{
               type="color"
               value={safeHex}
               onChange={(e) => onChange(e.target.value)}
-              className="w-8 h-8 rounded-xl border-2 border-[#a855f7]/40 cursor-pointer bg-transparent shadow-md"
+              className="w-7 h-7 rounded-[4px] border border-[#422066] cursor-pointer bg-transparent shadow-sm"
             />
           </div>
           <input
@@ -99,18 +100,18 @@ const RgbColorControl: React.FC<{
                 onChange(`#${e.target.value}`)
               }
             }}
-            className="w-20 px-2 py-1 rounded-lg bg-[#16142e] border border-[#28254c] font-mono text-xs text-[#c084fc] font-bold focus:outline-none focus:border-[#a855f7]"
+            className="w-20 px-2 py-0.5 rounded-[4px] bg-[#15182a] border border-[#422066] font-mono text-xs text-[#c084fc] font-bold focus:outline-none focus:border-[#a855f7]"
           />
         </div>
       </div>
 
       {/* RGB Sliders */}
-      <div className="grid grid-cols-3 gap-2 pt-1">
+      <div className="grid grid-cols-3 gap-2 pt-0.5">
         {/* Red */}
         <div className="space-y-1">
           <div className="flex items-center justify-between text-[10px] font-mono">
             <span className="text-[#fb7185] font-bold">R:</span>
-            <span className="text-[#94a3b8]">{rgb.r}</span>
+            <span className="text-[#8b87a8]">{rgb.r}</span>
           </div>
           <input
             type="range"
@@ -118,7 +119,7 @@ const RgbColorControl: React.FC<{
             max="255"
             value={rgb.r}
             onChange={(e) => handleRgbChange('r', Number(e.target.value))}
-            className="w-full h-1 bg-[#16142e] rounded-lg appearance-none cursor-pointer accent-[#fb7185]"
+            className="w-full h-1 bg-[#15182a] rounded-[2px] appearance-none cursor-pointer accent-[#fb7185]"
           />
         </div>
 
@@ -126,7 +127,7 @@ const RgbColorControl: React.FC<{
         <div className="space-y-1">
           <div className="flex items-center justify-between text-[10px] font-mono">
             <span className="text-[#4ade80] font-bold">G:</span>
-            <span className="text-[#94a3b8]">{rgb.g}</span>
+            <span className="text-[#8b87a8]">{rgb.g}</span>
           </div>
           <input
             type="range"
@@ -134,7 +135,7 @@ const RgbColorControl: React.FC<{
             max="255"
             value={rgb.g}
             onChange={(e) => handleRgbChange('g', Number(e.target.value))}
-            className="w-full h-1 bg-[#16142e] rounded-lg appearance-none cursor-pointer accent-[#4ade80]"
+            className="w-full h-1 bg-[#15182a] rounded-[2px] appearance-none cursor-pointer accent-[#4ade80]"
           />
         </div>
 
@@ -142,7 +143,7 @@ const RgbColorControl: React.FC<{
         <div className="space-y-1">
           <div className="flex items-center justify-between text-[10px] font-mono">
             <span className="text-[#38bdf8] font-bold">B:</span>
-            <span className="text-[#94a3b8]">{rgb.b}</span>
+            <span className="text-[#8b87a8]">{rgb.b}</span>
           </div>
           <input
             type="range"
@@ -150,21 +151,21 @@ const RgbColorControl: React.FC<{
             max="255"
             value={rgb.b}
             onChange={(e) => handleRgbChange('b', Number(e.target.value))}
-            className="w-full h-1 bg-[#16142e] rounded-lg appearance-none cursor-pointer accent-[#38bdf8]"
+            className="w-full h-1 bg-[#15182a] rounded-[2px] appearance-none cursor-pointer accent-[#38bdf8]"
           />
         </div>
       </div>
 
       {/* Quick Swatches */}
-      <div className="flex items-center gap-1.5 pt-1 overflow-x-auto no-scrollbar">
+      <div className="flex items-center gap-1.5 pt-0.5 overflow-x-auto no-scrollbar">
         {PRESETS.map((hex) => (
           <button
             key={hex}
             type="button"
             onClick={() => onChange(hex)}
             style={{ backgroundColor: hex }}
-            className={`w-4 h-4 rounded-full border transition-transform shrink-0 ${
-              safeHex.toLowerCase() === hex.toLowerCase() ? 'scale-125 border-white ring-2 ring-[#a855f7]' : 'border-transparent opacity-70 hover:opacity-100'
+            className={`w-3.5 h-3.5 rounded-[3px] border transition-transform shrink-0 ${
+              safeHex.toLowerCase() === hex.toLowerCase() ? 'scale-125 border-white ring-1 ring-[#a855f7]' : 'border-[#422066] opacity-70 hover:opacity-100'
             }`}
           />
         ))}
@@ -195,10 +196,13 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
       if (res.config) {
         setConfig(res.config)
         setRawJson(JSON.stringify(res.config, null, 2))
+        applyTheme(res.config)
       } else if (res.rawJson) {
         setRawJson(res.rawJson)
         try {
-          setConfig(JSON.parse(res.rawJson))
+          const parsed = JSON.parse(res.rawJson)
+          setConfig(parsed)
+          applyTheme(parsed)
         } catch {
           // Keep default
         }
@@ -218,6 +222,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
       if (res.success) {
         setSaveSuccess(true)
         setRawJson(jsonStr)
+        applyTheme(configToSave)
         if (onConfigSaved) onConfigSaved(configToSave)
         setTimeout(() => setSaveSuccess(false), 2000)
       }
@@ -240,7 +245,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
   }
 
   const handleResetDefaults = async () => {
-    if (!confirm('Czy na pewno chcesz przywrócić domyślne kolory i ustawienia (Ciemny granat + Ciemny fiolet + Jasny fiolet)?')) return
+    if (!confirm('Czy na pewno chcesz przywrócić domyślne kolory i ustawienia (Obsidian Velvet)?')) return
     try {
       const res = await window.electronAPI.invoke(IpcChannel.CONFIG_RESET, undefined)
       if (res.success && res.config) {
@@ -248,6 +253,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
         setRawJson(JSON.stringify(res.config, null, 2))
         setJsonError(null)
         setSaveSuccess(true)
+        applyTheme(res.config)
         if (onConfigSaved) onConfigSaved(res.config)
         setTimeout(() => setSaveSuccess(false), 2000)
       }
@@ -258,101 +264,101 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 select-none animate-in fade-in">
-      <div className="w-full max-w-5xl h-[88vh] bg-[#0b0e1e] border border-[#28254c] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-5xl h-[88vh] bg-[#0a0c16] border border-[#422066] rounded-[8px] shadow-2xl overflow-hidden flex flex-col font-sans">
         {/* Top Header */}
-        <div className="h-14 px-6 border-b border-[#28254c] flex items-center justify-between shrink-0 bg-[#070913]">
+        <div className="h-12 px-5 border-b border-[#422066] flex items-center justify-between shrink-0 bg-[#0a0c16]">
           <div className="flex items-center gap-3 font-semibold text-sm text-[#f8fafc]">
-            <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-[#a855f7] to-[#3b82f6] flex items-center justify-center shadow-lg shadow-purple-500/20">
-              <Settings className="w-4 h-4 text-white" />
+            <div className="w-6 h-6 rounded-[5px] bg-[#25143a] border border-[#422066] flex items-center justify-center shadow-sm">
+              <Settings className="w-3.5 h-3.5 text-[#c084fc]" />
             </div>
             <div>
-              <div className="font-bold tracking-tight text-[#f8fafc]">Centrum Ustawień & RGB Palet</div>
-              <div className="text-[10px] text-[#94a3b8] font-normal">Systemowy motyw: Ciemny Granat + Ciemny Fiolet + Jasny Fiolet</div>
+              <div className="font-bold tracking-tight text-[#f8fafc] text-xs">Centrum Ustawień & RGB Palet</div>
+              <div className="text-[10px] text-[#8b87a8] font-normal">Motyw Obsidian Velvet: Ciemny Granat + Ciemny Fiolet + Jasny Fiolet</div>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e] transition-colors"
+            className="p-1 rounded-[5px] text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#15182a] transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content Layout */}
         <div className="flex-1 flex overflow-hidden">
           {/* Sidebar Tabs */}
-          <div className="w-60 border-r border-[#28254c] bg-[#070913] p-3 space-y-1.5 shrink-0 select-none">
+          <div className="w-60 border-r border-[#422066] bg-[#0a0c16] p-2.5 space-y-1 shrink-0 select-none font-mono">
             <button
               onClick={() => setActiveTab('appearance')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[5px] text-xs font-medium transition-all ${
                 activeTab === 'appearance'
-                  ? 'bg-[#16142e] text-[#c084fc] border border-[#a855f7]/40 shadow-lg shadow-purple-500/10 font-bold'
-                  : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+                  ? 'bg-[#25143a] text-[#c084fc] border border-[#422066] font-bold'
+                  : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322]'
               }`}
             >
-              <Palette className="w-4 h-4 text-[#a855f7]" />
+              <Palette className="w-3.5 h-3.5 text-[#a855f7]" />
               <span>Wygląd & Kolory UI</span>
             </button>
 
             <button
               onClick={() => setActiveTab('sticky')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[5px] text-xs font-medium transition-all ${
                 activeTab === 'sticky'
-                  ? 'bg-[#16142e] text-[#c084fc] border border-[#a855f7]/40 shadow-lg shadow-purple-500/10 font-bold'
-                  : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+                  ? 'bg-[#25143a] text-[#c084fc] border border-[#422066] font-bold'
+                  : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322]'
               }`}
             >
-              <LayoutGrid className="w-4 h-4 text-[#c084fc]" />
+              <LayoutGrid className="w-3.5 h-3.5 text-[#c084fc]" />
               <span>Karteczki Sticky (RGB)</span>
             </button>
 
             <button
               onClick={() => setActiveTab('pen')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[5px] text-xs font-medium transition-all ${
                 activeTab === 'pen'
-                  ? 'bg-[#16142e] text-[#c084fc] border border-[#a855f7]/40 shadow-lg shadow-purple-500/10 font-bold'
-                  : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+                  ? 'bg-[#25143a] text-[#c084fc] border border-[#422066] font-bold'
+                  : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322]'
               }`}
             >
-              <Sparkles className="w-4 h-4 text-[#38bdf8]" />
+              <PenTool className="w-3.5 h-3.5 text-[#c084fc]" />
               <span>Kolory Pisaka (RGB)</span>
             </button>
 
             <button
               onClick={() => setActiveTab('graph')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[5px] text-xs font-medium transition-all ${
                 activeTab === 'graph'
-                  ? 'bg-[#16142e] text-[#c084fc] border border-[#a855f7]/40 shadow-lg shadow-purple-500/10 font-bold'
-                  : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+                  ? 'bg-[#25143a] text-[#c084fc] border border-[#422066] font-bold'
+                  : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322]'
               }`}
             >
-              <Share2 className="w-4 h-4 text-[#818cf8]" />
+              <Share2 className="w-3.5 h-3.5 text-[#818cf8]" />
               <span>Graf Wiedzy (Fizyka & RGB)</span>
             </button>
 
             <button
               onClick={() => setActiveTab('srs')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[5px] text-xs font-medium transition-all ${
                 activeTab === 'srs'
-                  ? 'bg-[#16142e] text-[#c084fc] border border-[#a855f7]/40 shadow-lg shadow-purple-500/10 font-bold'
-                  : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+                  ? 'bg-[#25143a] text-[#c084fc] border border-[#422066] font-bold'
+                  : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322]'
               }`}
             >
-              <BookOpen className="w-4 h-4 text-[#7c3aed]" />
+              <BookOpen className="w-3.5 h-3.5 text-[#a855f7]" />
               <span>SRS & Fiszki</span>
             </button>
 
-            <div className="pt-2 border-t border-[#28254c]" />
+            <div className="pt-1 border-t border-[#422066]" />
 
             <button
               onClick={() => setActiveTab('json')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-[5px] text-xs font-medium transition-all ${
                 activeTab === 'json'
-                  ? 'bg-[#16142e] text-[#f8fafc] border border-[#3b3874] shadow-sm font-semibold'
-                  : 'text-[#64748b] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+                  ? 'bg-[#25143a] text-[#f8fafc] border border-[#422066] font-bold'
+                  : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322]'
               }`}
             >
-              <Code className="w-4 h-4" />
+              <Code className="w-3.5 h-3.5" />
               <span>Plik config.json</span>
             </button>
           </div>
@@ -919,29 +925,29 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onConfigSaved 
         </div>
 
         {/* Footer Actions */}
-        <div className="h-14 px-6 border-t border-[#28254c] flex items-center justify-between shrink-0 bg-[#070913]">
+        <div className="h-12 px-5 border-t border-[#422066] flex items-center justify-between shrink-0 bg-[#0a0c16] font-mono">
           <button
             onClick={handleResetDefaults}
-            className="px-4 py-2 rounded-xl bg-[#0f1123] hover:bg-[#16142e] text-xs text-[#94a3b8] hover:text-[#fb7185] font-medium flex items-center gap-2 border border-[#28254c] transition-colors"
-            title="Przywróć domyślne kolory (Ciemny granat, Ciemny fiolet, Jasny fiolet)"
+            className="px-3 py-1.5 rounded-[5px] bg-[#101322] hover:bg-[#15182a] text-xs text-[#8b87a8] hover:text-[#fb7185] font-medium flex items-center gap-2 border border-[#422066] transition-colors"
+            title="Przywróć domyślne kolory (Obsidian Velvet)"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Przywróć domyślne</span>
           </button>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-[#0f1123] hover:bg-[#16142e] text-xs text-[#94a3b8] font-medium"
+              className="px-3.5 py-1.5 rounded-[5px] bg-[#101322] hover:bg-[#15182a] text-xs text-[#8b87a8] hover:text-[#f8fafc] border border-[#422066] font-medium transition-colors"
             >
               Zamknij
             </button>
             <button
               onClick={() => handleSave()}
               disabled={!!jsonError || isSaving}
-              className="px-6 py-2 rounded-xl bg-gradient-to-r from-[#a855f7] to-[#3b82f6] text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-purple-500/25 hover:opacity-95 disabled:opacity-40"
+              className="px-5 py-1.5 rounded-[5px] bg-[#25143a] hover:bg-[#341b52] text-[#c084fc] hover:text-white font-bold text-xs flex items-center gap-2 border border-[#a855f7]/40 shadow-sm disabled:opacity-40 transition-colors"
             >
-              {saveSuccess ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+              {saveSuccess ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
               <span>{saveSuccess ? 'Zapisano!' : 'Zastosuj i zapisz'}</span>
             </button>
           </div>

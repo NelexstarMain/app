@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from 'electron'
+import { app, BrowserWindow, session, Menu, MenuItem } from 'electron'
 import { join } from 'path'
 import { setupSecurity, CSP_HEADER } from './security'
 import { FileSystemService } from './services/fileSystemService'
@@ -23,15 +23,63 @@ function createWindow(): void {
     minWidth: 1024,
     minHeight: 700,
     show: false,
-    backgroundColor: '#0B0F19',
+    backgroundColor: '#06070d',
     autoHideMenuBar: true,
-    title: 'CogniCanvas / SynapseLearn v1.3',
+    title: 'CogniCanvas / SynapseLearn v1.5',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: true
+      webSecurity: true,
+      spellcheck: true
+    }
+  })
+
+  // Native Context Menu with Spellcheck and standard actions
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const menu = new Menu()
+
+    // 1. Spellchecker suggestions
+    if (params.dictionarySuggestions && params.dictionarySuggestions.length > 0) {
+      for (const suggestion of params.dictionarySuggestions) {
+        menu.append(
+          new MenuItem({
+            label: suggestion,
+            click: () => mainWindow?.webContents.replaceMisspelling(suggestion)
+          })
+        )
+      }
+      menu.append(new MenuItem({ type: 'separator' }))
+    }
+
+    if (params.misspelledWord) {
+      menu.append(
+        new MenuItem({
+          label: 'Dodaj do słownika',
+          click: () => mainWindow?.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
+        })
+      )
+      menu.append(new MenuItem({ type: 'separator' }))
+    }
+
+    // 2. Standard editing commands
+    if (params.isEditable) {
+      menu.append(new MenuItem({ role: 'undo', label: 'Cofnij' }))
+      menu.append(new MenuItem({ role: 'redo', label: 'Ponów' }))
+      menu.append(new MenuItem({ type: 'separator' }))
+      menu.append(new MenuItem({ role: 'cut', label: 'Wytnij' }))
+      menu.append(new MenuItem({ role: 'copy', label: 'Kopiuj' }))
+      menu.append(new MenuItem({ role: 'paste', label: 'Wklej' }))
+      menu.append(new MenuItem({ type: 'separator' }))
+      menu.append(new MenuItem({ role: 'selectAll', label: 'Zaznacz wszystko' }))
+    } else if (params.selectionText) {
+      menu.append(new MenuItem({ role: 'copy', label: 'Kopiuj' }))
+      menu.append(new MenuItem({ role: 'selectAll', label: 'Zaznacz wszystko' }))
+    }
+
+    if (menu.items.length > 0) {
+      menu.popup()
     }
   })
 

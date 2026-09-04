@@ -15,6 +15,44 @@ export function registerIpcHandlers(
   recoveryService: RecoveryService,
   configService: ConfigService
 ): void {
+  // Helper to reindex the entire workspace tree
+  function performFullReindex(): { count: number; durationMs: number } {
+    const start = Date.now()
+    const allFiles = fsService.listFiles('')
+    let count = 0
+
+    function scanItems(items: any[]) {
+      for (const item of items) {
+        if (item.type === 'file') {
+          if (item.extension === '.md') {
+            try {
+              const data = fsService.readFile(item.relativePath)
+              const title = path.basename(item.relativePath, '.md')
+              dbService.indexMarkdownNote(item.relativePath, title, item.relativePath, data.content)
+              count++
+            } catch {
+              // Ignore
+            }
+          } else if (item.extension === '.json' && (item.name.includes('.canvas.') || item.name.endsWith('.canvas.json'))) {
+            try {
+              const data = fsService.readFile(item.relativePath)
+              const parsed = JSON.parse(data.content)
+              dbService.indexCanvasDocument(item.relativePath, parsed)
+              count++
+            } catch {
+              // Ignore
+            }
+          }
+        } else if (item.children) {
+          scanItems(item.children)
+        }
+      }
+    }
+
+    scanItems(allFiles)
+    return { count, durationMs: Date.now() - start }
+  }
+
   // 1. Workspace
   ipcMain.handle(IpcChannel.WORKSPACE_SELECT, async () => {
     const res = await dialog.showOpenDialog(mainWindow, {
@@ -30,6 +68,7 @@ export function registerIpcHandlers(
     assetService.setWorkspace(selected)
     recoveryService.setWorkspace(selected)
     configService.setWorkspace(selected)
+    performFullReindex()
     return { path: selected }
   })
 
@@ -40,6 +79,7 @@ export function registerIpcHandlers(
       assetService.setWorkspace(payload.workspacePath)
       recoveryService.setWorkspace(payload.workspacePath)
       configService.setWorkspace(payload.workspacePath)
+      performFullReindex()
       const stats = fsService.getWorkspaceStats()
       return { success: true, stats }
     } catch (err: any) {
@@ -228,47 +268,11 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle(IpcChannel.DB_REINDEX_ALL, async () => {
-    const start = Date.now()
     try {
-      const notes = fsService.listFiles('notes')
-      const canvases = fsService.listFiles('canvases')
-      let count = 0
-
-      function reindexNotes(items: any[]) {
-        for (const item of items) {
-          if (item.type === 'file' && item.extension === '.md') {
-            const data = fsService.readFile(item.relativePath)
-            const title = path.basename(item.relativePath, '.md')
-            dbService.indexMarkdownNote(item.relativePath, title, item.relativePath, data.content)
-            count++
-          } else if (item.children) {
-            reindexNotes(item.children)
-          }
-        }
-      }
-
-      function reindexCanvases(items: any[]) {
-        for (const item of items) {
-          if (item.type === 'file' && item.name.includes('.canvas.')) {
-            const data = fsService.readFile(item.relativePath)
-            try {
-              const parsed = JSON.parse(data.content)
-              dbService.indexCanvasDocument(item.relativePath, parsed)
-              count++
-            } catch {
-              // Ignore
-            }
-          } else if (item.children) {
-            reindexCanvases(item.children)
-          }
-        }
-      }
-
-      reindexNotes(notes)
-      reindexCanvases(canvases)
-      return { success: true, count, durationMs: Date.now() - start }
+      const result = performFullReindex()
+      return { success: true, count: result.count, durationMs: result.durationMs }
     } catch (err: any) {
-      return { success: false, count: 0, durationMs: Date.now() - start, error: err.message }
+      return { success: false, count: 0, durationMs: 0, error: err.message }
     }
   })
 

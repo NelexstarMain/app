@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { IpcChannel } from '../../../../shared/ipc/channels'
 import { GraphEdgeRecord } from '../../../../shared/types/database'
-import { ZoomIn, ZoomOut, RefreshCw, Link2, Check, Sparkles, Search, CheckSquare, Square } from 'lucide-react'
+import { ZoomIn, ZoomOut, RefreshCw, Link2, Check, Network, Search, CheckSquare, Square } from 'lucide-react'
 
 interface GraphNodeSim {
   id: string
@@ -52,9 +52,9 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
       const cfgRes = await window.electronAPI.invoke(IpcChannel.CONFIG_GET, undefined)
       const graphCfg = cfgRes?.config?.graph || {
         nodeColorNote: '#a855f7',
-        nodeColorCanvas: '#818cf8',
-        nodeColorAsset: '#c084fc',
-        edgeColor: '#3b3874',
+        nodeColorCanvas: '#c084fc',
+        nodeColorAsset: '#7e3af2',
+        edgeColor: '#422066',
         repulsionForce: 750,
         springForce: 0.005
       }
@@ -70,10 +70,10 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
           const dist = 150 + (idx % 3) * 70
           const color =
             n.type === 'visual_entity'
-              ? graphCfg.nodeColorAsset || '#c084fc'
+              ? graphCfg.nodeColorAsset || '#7e3af2'
               : n.type === 'canvas'
-              ? graphCfg.nodeColorCanvas || '#38bdf8'
-              : graphCfg.nodeColorNote || '#10b981'
+              ? graphCfg.nodeColorCanvas || '#c084fc'
+              : graphCfg.nodeColorNote || '#a855f7'
 
           return {
             id: n.id,
@@ -206,25 +206,57 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
       ctx.translate(pan.x, pan.y)
       ctx.scale(zoom, zoom)
 
-      // Draw Edges
+      // Focus Highlight set (selected nodes + direct neighbors)
+      const activeNodeIds = new Set<string>(selectedNodeIds)
+      for (const edge of edges) {
+        if (selectedNodeIds.includes(edge.source_id)) {
+          activeNodeIds.add(edge.target_id)
+        }
+        if (selectedNodeIds.includes(edge.target_id)) {
+          activeNodeIds.add(edge.source_id)
+        }
+      }
+
+      // Draw Edges with Focus Highlight
       for (const edge of edges) {
         const source = currentNodes.find((n) => n.id === edge.source_id)
         const target = currentNodes.find((n) => n.id === edge.target_id)
         if (!source || !target) continue
 
+        const isSourceSelected = selectedNodeIds.includes(source.id)
+        const isTargetSelected = selectedNodeIds.includes(target.id)
+        const isEdgeActive = isSourceSelected || isTargetSelected
+
+        if (selectedNodeIds.length > 0) {
+          if (isEdgeActive) {
+            ctx.globalAlpha = 1.0
+            ctx.strokeStyle = '#c084fc'
+            ctx.lineWidth = 2.5
+          } else {
+            ctx.globalAlpha = 0.08
+            ctx.strokeStyle = '#422066'
+            ctx.lineWidth = 1.5
+          }
+        } else {
+          ctx.globalAlpha = 1.0
+          ctx.strokeStyle = '#422066'
+          ctx.lineWidth = 1.5
+        }
+
         ctx.beginPath()
         ctx.moveTo(source.x, source.y)
         ctx.lineTo(target.x, target.y)
-        ctx.strokeStyle = '#27272a'
-        ctx.lineWidth = 2
         ctx.stroke()
       }
 
-      // Draw Nodes
+      // Draw Nodes with Focus Highlight
       for (const n of currentNodes) {
         const isSelected = selectedNodeIds.includes(n.id)
+        const isNeighbor = activeNodeIds.has(n.id)
 
-        if (filterType && n.type !== filterType) {
+        if (selectedNodeIds.length > 0) {
+          ctx.globalAlpha = isNeighbor ? 1.0 : 0.08
+        } else if (filterType && n.type !== filterType) {
           ctx.globalAlpha = 0.2
         } else {
           ctx.globalAlpha = 1.0
@@ -234,10 +266,10 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
         if (isSelected) {
           ctx.beginPath()
           ctx.arc(n.x, n.y, n.radius + 8, 0, Math.PI * 2)
-          ctx.strokeStyle = '#38bdf8'
+          ctx.strokeStyle = '#c084fc'
           ctx.lineWidth = 3
           ctx.stroke()
-          ctx.fillStyle = 'rgba(56, 189, 248, 0.2)'
+          ctx.fillStyle = 'rgba(192, 132, 252, 0.2)'
           ctx.fill()
         }
 
@@ -245,12 +277,12 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
         ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2)
         ctx.fillStyle = n.color
         ctx.fill()
-        ctx.strokeStyle = '#18181b'
+        ctx.strokeStyle = '#06070d'
         ctx.lineWidth = 2.5
         ctx.stroke()
 
         if (zoom >= 0.35) {
-          ctx.fillStyle = isSelected ? '#38bdf8' : '#f4f4f5'
+          ctx.fillStyle = isSelected ? '#c084fc' : '#f4f4f5'
           ctx.font = 'bold 11px Inter, sans-serif'
           ctx.textAlign = 'center'
           ctx.fillText(n.title, n.x, n.y + n.radius + 15)
@@ -302,6 +334,9 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
       if (clickedNode) {
         toggleNodeSelection(clickedNode.id)
         if (onNodeClick) onNodeClick(clickedNode.id, clickedNode.type)
+      } else {
+        // Reset Focus Highlight on empty canvas click
+        setSelectedNodeIds([])
       }
     }
   }
@@ -318,27 +353,27 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
   )
 
   return (
-    <div className="h-full w-full bg-[#09090b] relative overflow-hidden select-none">
+    <div className="h-full w-full bg-[#06070d] relative overflow-hidden select-none">
       {/* Top Left Navigation Bar */}
-      <div className="absolute top-4 left-4 z-30 flex items-center gap-1.5 p-1 rounded-xl bg-[#18181b]/90 border border-[#27272a] shadow-xl text-xs backdrop-blur-md">
+      <div className="absolute top-4 left-4 z-30 flex items-center gap-1.5 p-1 rounded-[7px] bg-[#0a0c16]/90 border border-[#422066] shadow-xl text-xs backdrop-blur-md">
         <button
           onClick={loadGraph}
-          className="p-1 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]"
+          className="p-1 rounded-[5px] text-[#8b87a8] hover:text-[#f4f4f5] hover:bg-[#25143a] transition-colors"
           title="Odśwież graf"
         >
           <RefreshCw className="w-3.5 h-3.5" />
         </button>
-        <div className="w-px h-3 bg-[#27272a] mx-0.5" />
+        <div className="w-px h-3 bg-[#422066] mx-0.5" />
         <button
           onClick={() => setZoom((z) => Math.min(3.0, z + 0.15))}
-          className="p-1 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]"
+          className="p-1 rounded-[5px] text-[#8b87a8] hover:text-[#f4f4f5] hover:bg-[#25143a] transition-colors"
         >
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
-        <span className="font-mono text-[11px] text-[#a1a1aa] w-9 text-center">{Math.round(zoom * 100)}%</span>
+        <span className="font-mono text-[11px] text-[#8b87a8] w-9 text-center">{Math.round(zoom * 100)}%</span>
         <button
           onClick={() => setZoom((z) => Math.max(0.15, z - 0.15))}
-          className="p-1 rounded-lg text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#27272a]"
+          className="p-1 rounded-[5px] text-[#8b87a8] hover:text-[#f4f4f5] hover:bg-[#25143a] transition-colors"
         >
           <ZoomOut className="w-3.5 h-3.5" />
         </button>
@@ -346,11 +381,11 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
 
       {/* Floating Multi-Select & Link Bar */}
       {selectedNodeIds.length > 1 && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#0f1123]/95 border border-[#a855f7] shadow-2xl text-xs backdrop-blur-md animate-in fade-in">
-          <span className="font-semibold text-[#f8fafc]">Zaznaczono {selectedNodeIds.length} węzłów</span>
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3.5 py-2 rounded-[7px] bg-[#0a0c16]/95 border border-[#422066] shadow-2xl text-xs backdrop-blur-md animate-in fade-in">
+          <span className="font-semibold text-[#f4f4f5]">Zaznaczono {selectedNodeIds.length} węzłów</span>
           <button
             onClick={handleConnectSelected}
-            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-[#a855f7] to-[#3b82f6] text-white font-bold text-xs flex items-center gap-1.5 shadow-md hover:opacity-95 transition-opacity"
+            className="px-3.5 py-1.5 rounded-[5px] bg-[#25143a] hover:bg-[#341b52] border border-[#422066] text-[#c084fc] font-bold text-xs flex items-center gap-1.5 shadow-md transition-colors"
           >
             {justLinked ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
             <span>{justLinked ? 'Połączono pomyślnie!' : 'Połącz zaznaczone relacją'}</span>
@@ -359,16 +394,16 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
       )}
 
       {/* Interactive Node Selection Sidebar Drawer */}
-      <div className="absolute top-4 right-4 z-30 w-64 max-h-[calc(100%-32px)] bg-[#0f1123]/95 border border-[#28254c] rounded-2xl shadow-2xl backdrop-blur-md flex flex-col text-xs overflow-hidden">
-        <div className="p-3 border-b border-[#28254c] flex items-center justify-between">
-          <div className="flex items-center gap-1.5 font-semibold text-[#f8fafc]">
-            <Sparkles className="w-3.5 h-3.5 text-[#c084fc]" />
+      <div className="absolute top-4 right-4 z-30 w-64 max-h-[calc(100%-32px)] bg-[#0a0c16]/95 border border-[#422066] rounded-[7px] shadow-2xl backdrop-blur-md flex flex-col text-xs overflow-hidden">
+        <div className="p-3 border-b border-[#422066] flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-semibold text-[#f4f4f5]">
+            <Network className="w-3.5 h-3.5 text-[#a855f7]" />
             <span>Węzły grafu ({nodes.length})</span>
           </div>
           {selectedNodeIds.length > 0 && (
             <button
               onClick={() => setSelectedNodeIds([])}
-              className="text-[10px] text-[#94a3b8] hover:text-[#fb7185]"
+              className="text-[10px] text-[#8b87a8] hover:text-[#c084fc] transition-colors"
             >
               Odznacz
             </button>
@@ -376,15 +411,15 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
         </div>
 
         {/* Search Input */}
-        <div className="p-2 border-b border-[#28254c]">
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#16142e] border border-[#28254c]">
-            <Search className="w-3 h-3 text-[#94a3b8]" />
+        <div className="p-2 border-b border-[#422066]">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-[5px] bg-[#15182a] border border-[#422066]">
+            <Search className="w-3 h-3 text-[#8b87a8]" />
             <input
               type="text"
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
               placeholder="Szukaj węzła..."
-              className="w-full bg-transparent text-[11px] text-[#f8fafc] placeholder-[#64748b] focus:outline-none"
+              className="w-full bg-transparent text-[11px] text-[#f4f4f5] placeholder-[#8b87a8] focus:outline-none"
             />
           </div>
         </div>
@@ -397,16 +432,16 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
               <div
                 key={n.id}
                 onClick={() => toggleNodeSelection(n.id)}
-                className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer transition-colors ${
+                className={`flex items-center gap-2 p-2 rounded-[5px] cursor-pointer transition-colors ${
                   isSelected
-                    ? 'bg-[#16142e] text-[#c084fc] font-semibold border border-[#a855f7]/40'
-                    : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e]'
+                    ? 'bg-[#25143a] text-[#c084fc] font-semibold border border-[#422066]'
+                    : 'text-[#8b87a8] hover:text-[#f4f4f5] hover:bg-[#15182a]'
                 }`}
               >
                 {isSelected ? (
                   <CheckSquare className="w-4 h-4 text-[#c084fc] shrink-0" />
                 ) : (
-                  <Square className="w-4 h-4 text-[#64748b] shrink-0" />
+                  <Square className="w-4 h-4 text-[#8b87a8] shrink-0" />
                 )}
                 <span
                   className="w-2.5 h-2.5 rounded-full shrink-0"
@@ -419,10 +454,10 @@ export const KnowledgeGraphViewport: React.FC<Props> = ({
         </div>
 
         {selectedNodeIds.length >= 2 && (
-          <div className="p-2 border-t border-[#27272a]">
+          <div className="p-2 border-t border-[#422066]">
             <button
               onClick={handleConnectSelected}
-              className="w-full py-2 rounded-xl bg-gradient-to-r from-[#38bdf8] to-[#10b981] text-black font-bold text-xs flex items-center justify-center gap-1.5 shadow-md hover:opacity-90"
+              className="w-full py-2 rounded-[5px] bg-[#25143a] hover:bg-[#341b52] border border-[#422066] text-[#c084fc] font-bold text-xs flex items-center justify-center gap-1.5 shadow-md transition-colors"
             >
               <Link2 className="w-4 h-4" />
               <span>Połącz wybrane ({selectedNodeIds.length})</span>

@@ -17,6 +17,14 @@ import { CanvasDocument } from '../../shared/types/canvas'
 import { updateFSRS, ReviewGrade } from '../../shared/types/fsrs'
 import { AnalyticsSummary, calculateFlowIndex, calculateGraphGrowthRate } from '../../shared/types/analytics'
 
+export function normalizeLookup(str: string): string {
+  return str
+    .trim()
+    .replace(/\.(md|canvas|txt|json)$/i, '')
+    .replace(/[\s\-_/.]+/g, '')
+    .toLowerCase()
+}
+
 export class DatabaseService {
   private dbFilePath: string | null = null
   private workspacePath: string | null = null
@@ -174,13 +182,16 @@ export class DatabaseService {
       const targetRaw = match[1].trim()
       if (targetRaw.startsWith('@entity_') || targetRaw.startsWith('@')) continue
       const label = match[2] || 'POWIĄZANIE'
-      const edgeId = `edge_${sourceNoteId}_to_${targetRaw.replace(/[\s\/]+/g, '_')}`
+      const found = this.findGraphNode(targetRaw)
+      const targetId = found ? found.id : targetRaw
+      const targetType = found ? found.type : 'note'
+      const edgeId = `edge_${sourceNoteId}_to_${targetId.replace(/[\s\/]+/g, '_')}`
       this.edges.set(edgeId, {
         edge_id: edgeId,
         source_id: sourceNoteId,
         source_type: 'note',
-        target_id: targetRaw,
-        target_type: 'note',
+        target_id: targetId,
+        target_type: targetType,
         relation_label: label,
         origin_context: 'inline_link',
         origin_canvas_id: null,
@@ -193,13 +204,16 @@ export class DatabaseService {
     while ((match = mentionRegex.exec(content)) !== null) {
       const targetTitle = (match[1] || match[2] || '').trim()
       if (!targetTitle) continue
-      const edgeId = `edge_${sourceNoteId}_at_${targetTitle.replace(/[\s\/]+/g, '_')}`
+      const found = this.findGraphNode(targetTitle)
+      const targetId = found ? found.id : targetTitle
+      const targetType = found ? found.type : 'note'
+      const edgeId = `edge_${sourceNoteId}_at_${targetId.replace(/[\s\/]+/g, '_')}`
       this.edges.set(edgeId, {
         edge_id: edgeId,
         source_id: sourceNoteId,
         source_type: 'note',
-        target_id: targetTitle,
-        target_type: 'note',
+        target_id: targetId,
+        target_type: targetType,
         relation_label: 'WZMIANKA',
         origin_context: 'inline_link',
         origin_canvas_id: null,
@@ -245,6 +259,89 @@ export class DatabaseService {
     }
   }
 
+  // --- Graph Node Lookup (id -> title -> file_path -> filename without ext -> normalized) ---
+  public findGraphNode(query: string): { id: string; title: string; type: 'note' | 'visual_entity' | 'canvas' } | null {
+    if (!query) return null
+    const raw = query.trim()
+    const cleanExt = raw.replace(/\.(md|canvas|txt|json)$/i, '')
+    const norm = normalizeLookup(raw)
+
+    // 1. Direct ID match
+    if (this.notes.has(raw)) {
+      const n = this.notes.get(raw)!
+      return { id: n.note_id, title: n.title, type: 'note' }
+    }
+    if (this.entities.has(raw)) {
+      const e = this.entities.get(raw)!
+      return { id: e.entity_id, title: e.title, type: 'visual_entity' }
+    }
+    if (this.canvases.has(raw)) {
+      const c = this.canvases.get(raw)!
+      return { id: c.canvas_id, title: c.title, type: 'canvas' }
+    }
+
+    // Try common prefixes
+    for (const prefix of ['notes/', 'canvases/']) {
+      const withPrefix = `${prefix}${raw}`
+      if (this.notes.has(withPrefix)) {
+        const n = this.notes.get(withPrefix)!
+        return { id: n.note_id, title: n.title, type: 'note' }
+      }
+      if (this.canvases.has(withPrefix)) {
+        const c = this.canvases.get(withPrefix)!
+        return { id: c.canvas_id, title: c.title, type: 'canvas' }
+      }
+    }
+
+    // 2. Exact Title match (case-insensitive)
+    for (const n of this.notes.values()) {
+      if (n.title.toLowerCase() === raw.toLowerCase() || n.title.toLowerCase() === cleanExt.toLowerCase()) {
+        return { id: n.note_id, title: n.title, type: 'note' }
+      }
+    }
+    for (const e of this.entities.values()) {
+      if (e.title.toLowerCase() === raw.toLowerCase()) {
+        return { id: e.entity_id, title: e.title, type: 'visual_entity' }
+      }
+    }
+    for (const c of this.canvases.values()) {
+      if (c.title.toLowerCase() === raw.toLowerCase() || c.title.toLowerCase() === cleanExt.toLowerCase()) {
+        return { id: c.canvas_id, title: c.title, type: 'canvas' }
+      }
+    }
+
+    // 3. File path match
+    for (const n of this.notes.values()) {
+      if (n.file_path.toLowerCase() === raw.toLowerCase() || path.basename(n.file_path, '.md').toLowerCase() === cleanExt.toLowerCase()) {
+        return { id: n.note_id, title: n.title, type: 'note' }
+      }
+    }
+    for (const c of this.canvases.values()) {
+      if (c.file_path.toLowerCase() === raw.toLowerCase() || path.basename(c.file_path, '.canvas.json').toLowerCase() === cleanExt.toLowerCase()) {
+        return { id: c.canvas_id, title: c.title, type: 'canvas' }
+      }
+    }
+
+    // 4. Normalized lookup
+    for (const n of this.notes.values()) {
+      if (normalizeLookup(n.note_id) === norm || normalizeLookup(n.title) === norm) {
+        return { id: n.note_id, title: n.title, type: 'note' }
+      }
+    }
+    for (const e of this.entities.values()) {
+      if (normalizeLookup(e.entity_id) === norm || normalizeLookup(e.title) === norm) {
+        return { id: e.entity_id, title: e.title, type: 'visual_entity' }
+      }
+    }
+    for (const c of this.canvases.values()) {
+      if (normalizeLookup(c.canvas_id) === norm || normalizeLookup(c.title) === norm) {
+        return { id: c.canvas_id, title: c.title, type: 'canvas' }
+      }
+    }
+
+    return null
+  }
+
   // --- Canvas Document Indexing ---
   public indexCanvasDocument(canvasPath: string, doc: CanvasDocument): void {
     const canvasId = doc.canvas_id || canvasPath
@@ -266,25 +363,9 @@ export class DatabaseService {
       }
     }
 
-    // 1. Index explicit arrows/connectors
-    if (doc.edges) {
-      for (const edge of doc.edges) {
-        const edgeId = `canvas_edge_${edge.id || `${edge.fromNode}_${edge.toNode}`}`
-        this.edges.set(edgeId, {
-          edge_id: edgeId,
-          source_id: edge.fromNode,
-          source_type: 'note',
-          target_id: edge.toNode,
-          target_type: 'note',
-          relation_label: edge.label || 'RELACJA',
-          origin_context: 'canvas_arrow',
-          origin_canvas_id: canvasId,
-          created_at: Date.now()
-        })
-      }
-    }
+    // Map internal node IDs to resolved graph IDs
+    const nodeGraphIdMap = new Map<string, { id: string; type: 'note' | 'visual_entity' | 'canvas' }>()
 
-    // 2. Index canvas nodes and extract implicit inline wikilinks / @ mentions inside cards
     if (doc.nodes) {
       for (const node of doc.nodes) {
         if (node.type === 'quiz_card') {
@@ -316,29 +397,43 @@ export class DatabaseService {
 
         if (node.type === 'drawing_stroke') continue
 
-        // Register card as a graph node
-        const nodeTitle =
-          node.data?.title ||
-          node.data?.label ||
-          (node.type === 'sticky_note'
-            ? node.data?.text
-              ? node.data.text.slice(0, 30)
-              : 'Sticky Note'
-            : node.data?.text
-            ? node.data.text.slice(0, 30)
-            : 'Węzeł')
+        let resolvedId = `${canvasId}#${node.id}`
+        let resolvedType: 'note' | 'visual_entity' | 'canvas' = 'note'
 
-        const nodeRecordId = `${canvasId}#${node.id}`
-        this.notes.set(nodeRecordId, {
-          note_id: nodeRecordId,
-          title: nodeTitle,
-          file_path: canvasPath,
-          word_count: 10,
-          char_count: 50,
-          checksum_hash: '',
-          created_at: Date.now(),
-          updated_at: Date.now()
-        })
+        if (node.type === 'visual_entity_node' && node.data?.entity_id) {
+          resolvedId = node.data.entity_id
+          resolvedType = 'visual_entity'
+        } else if (node.data?.linked_note_id) {
+          resolvedId = node.data.linked_note_id
+          resolvedType = 'note'
+        }
+
+        nodeGraphIdMap.set(node.id, { id: resolvedId, type: resolvedType })
+
+        // Register card as a graph node if not an external entity/note
+        if (resolvedId === `${canvasId}#${node.id}`) {
+          const nodeTitle =
+            node.data?.title ||
+            node.data?.label ||
+            (node.type === 'sticky_note'
+              ? node.data?.text
+                ? node.data.text.slice(0, 30)
+                : 'Sticky Note'
+              : node.data?.text
+              ? node.data.text.slice(0, 30)
+              : 'Węzeł')
+
+          this.notes.set(resolvedId, {
+            note_id: resolvedId,
+            title: nodeTitle,
+            file_path: canvasPath,
+            word_count: 10,
+            char_count: 50,
+            checksum_hash: '',
+            created_at: Date.now(),
+            updated_at: Date.now()
+          })
+        }
 
         // Also extract inline wikilinks [[...]] and @mentions inside this canvas card
         const cardText = `${node.data?.markdown || ''} ${node.data?.text || ''} ${node.data?.label || ''}`
@@ -346,13 +441,16 @@ export class DatabaseService {
         let m: RegExpExecArray | null
         while ((m = wikiRegex.exec(cardText)) !== null) {
           const target = m[1].trim()
-          const edgeId = `edge_canvas_${node.id}_to_${target.replace(/[\s\/]+/g, '_')}`
+          const found = this.findGraphNode(target)
+          const targetId = found ? found.id : target
+          const targetType = found ? found.type : 'note'
+          const edgeId = `edge_canvas_${node.id}_to_${targetId.replace(/[\s\/]+/g, '_')}`
           this.edges.set(edgeId, {
             edge_id: edgeId,
-            source_id: node.id,
-            source_type: 'note',
-            target_id: target,
-            target_type: 'note',
+            source_id: resolvedId,
+            source_type: resolvedType,
+            target_id: targetId,
+            target_type: targetType,
             relation_label: m[2] || 'POWIĄZANIE',
             origin_context: 'inline_link',
             origin_canvas_id: canvasId,
@@ -364,19 +462,42 @@ export class DatabaseService {
         while ((m = atRegex.exec(cardText)) !== null) {
           const target = (m[1] || m[2] || '').trim()
           if (!target) continue
-          const edgeId = `edge_canvas_${node.id}_at_${target.replace(/[\s\/]+/g, '_')}`
+          const found = this.findGraphNode(target)
+          const targetId = found ? found.id : target
+          const targetType = found ? found.type : 'note'
+          const edgeId = `edge_canvas_${node.id}_at_${targetId.replace(/[\s\/]+/g, '_')}`
           this.edges.set(edgeId, {
             edge_id: edgeId,
-            source_id: node.id,
-            source_type: 'note',
-            target_id: target,
-            target_type: 'note',
+            source_id: resolvedId,
+            source_type: resolvedType,
+            target_id: targetId,
+            target_type: targetType,
             relation_label: 'WZMIANKA',
             origin_context: 'inline_link',
             origin_canvas_id: canvasId,
             created_at: Date.now()
           })
         }
+      }
+    }
+
+    // 1. Index explicit arrows/connectors mapped to resolved node IDs
+    if (doc.edges) {
+      for (const edge of doc.edges) {
+        const fromInfo = nodeGraphIdMap.get(edge.fromNode) || { id: `${canvasId}#${edge.fromNode}`, type: 'note' as const }
+        const toInfo = nodeGraphIdMap.get(edge.toNode) || { id: `${canvasId}#${edge.toNode}`, type: 'note' as const }
+        const edgeId = `canvas_edge_${edge.id || `${edge.fromNode}_${edge.toNode}`}`
+        this.edges.set(edgeId, {
+          edge_id: edgeId,
+          source_id: fromInfo.id,
+          source_type: fromInfo.type,
+          target_id: toInfo.id,
+          target_type: toInfo.type,
+          relation_label: edge.label || 'RELACJA',
+          origin_context: 'canvas_arrow',
+          origin_canvas_id: canvasId,
+          created_at: Date.now()
+        })
       }
     }
 
@@ -470,10 +591,33 @@ export class DatabaseService {
   } {
     const nodeMap = new Map<string, { id: string; title: string; type: 'note' | 'visual_entity' | 'canvas'; thumbPath?: string; tags?: string[] }>()
 
+    // Prop 1: Collision detection across nodes to disambiguate identical filenames in different folders
+    const titleCounts = new Map<string, number>()
+    for (const note of this.notes.values()) {
+      titleCounts.set(note.title, (titleCounts.get(note.title) || 0) + 1)
+    }
+    for (const entity of this.entities.values()) {
+      titleCounts.set(entity.title, (titleCounts.get(entity.title) || 0) + 1)
+    }
+    for (const canvas of this.canvases.values()) {
+      titleCounts.set(canvas.title, (titleCounts.get(canvas.title) || 0) + 1)
+    }
+
+    const formatUniqueTitle = (title: string, filePath?: string): string => {
+      if ((titleCounts.get(title) || 0) > 1 && filePath) {
+        const parts = filePath.replace(/\\/g, '/').split('/')
+        if (parts.length > 1) {
+          const folder = parts[parts.length - 2]
+          return `${title} (${folder})`
+        }
+      }
+      return title
+    }
+
     for (const note of this.notes.values()) {
       nodeMap.set(note.note_id, {
         id: note.note_id,
-        title: note.title,
+        title: formatUniqueTitle(note.title, note.file_path),
         type: 'note',
         tags: Array.from(this.itemTags.get(note.note_id) || [])
       })
@@ -492,7 +636,7 @@ export class DatabaseService {
     for (const canvas of this.canvases.values()) {
       nodeMap.set(canvas.canvas_id, {
         id: canvas.canvas_id,
-        title: canvas.title,
+        title: formatUniqueTitle(canvas.title, canvas.file_path),
         type: 'canvas'
       })
     }

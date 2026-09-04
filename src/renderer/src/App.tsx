@@ -5,13 +5,30 @@ import { CanvasDocument } from '../../shared/types/canvas'
 import { TaskTodoRecord } from '../../shared/types/database'
 import { SessionManager } from './state/sessionStore'
 import { parseCliCommand, ParsedCommand } from '../../shared/types/commands'
-import { LayoutGrid, Share2, CheckSquare, BookOpen, BarChart2, X, Plus, FileText, AlignLeft, FolderTree } from 'lucide-react'
+import {
+  LayoutGrid,
+  Share2,
+  CheckSquare,
+  BookOpen,
+  BarChart2,
+  X,
+  Plus,
+  FileText,
+  AlignLeft,
+  FolderTree,
+  Play,
+  Pause,
+  Square,
+  Command,
+  Layers,
+  Settings
+} from 'lucide-react'
 
-// Components
+// Theme & Components
+import { applyTheme } from './theme/themeManager'
 import { WorkspaceSelector } from './components/workspace/WorkspaceSelector'
 import { FileSidebar } from './components/workspace/FileSidebar'
 import { CreateFileDialog, FileCreationType } from './components/workspace/CreateFileDialog'
-import { SessionHeader } from './components/session/SessionHeader'
 import { SessionKickoffModal } from './components/session/SessionKickoffModal'
 import { SessionEvaluationModal } from './components/session/SessionEvaluationModal'
 import { SessionStatsHud } from './components/session/SessionStatsHud'
@@ -24,6 +41,7 @@ import { AssetDrawer } from './components/drawer/AssetDrawer'
 import { SrsReviewRunner } from './components/review/SrsReviewRunner'
 import { AnalyticsModal } from './components/analytics/AnalyticsModal'
 import { SettingsModal } from './components/config/ConfigEditorModal'
+import { BottomStatusBar } from './components/terminal/BottomStatusBar'
 
 interface OpenTab {
   id: string
@@ -81,6 +99,7 @@ export const App: React.FC = () => {
 
   // 1. Initial Load
   useEffect(() => {
+    applyTheme()
     const checkInit = async () => {
       try {
         const current = await window.electronAPI.invoke(IpcChannel.WORKSPACE_GET_CURRENT, undefined)
@@ -236,12 +255,76 @@ export const App: React.FC = () => {
 
   const handleCloseTab = (e: React.MouseEvent, tabId: string) => {
     e.stopPropagation()
+    const targetTab = openTabs.find((t) => t.id === tabId)
+    if (!targetTab) return
+
     const remaining = openTabs.filter((t) => t.id !== tabId)
     setOpenTabs(remaining)
-    if (activeTabId === tabId && remaining.length > 0) {
-      const next = remaining[remaining.length - 1]
-      handleSelectTab(next)
+
+    if (activeTabId === tabId) {
+      if (remaining.length > 0) {
+        const currentIndex = openTabs.findIndex((t) => t.id === tabId)
+        const nextIndex = Math.max(0, Math.min(currentIndex, remaining.length - 1))
+        handleSelectTab(remaining[nextIndex])
+      } else {
+        setActiveTabId('')
+        setActivePath(null)
+        setCanvasDoc(null)
+        setTextContent('')
+      }
     }
+
+    requestAnimationFrame(() => {
+      const editor = window.document.querySelector('textarea[data-editor="true"]') as HTMLElement | null
+      if (editor) {
+        editor.focus()
+      } else {
+        const canvasGrid = window.document.querySelector('.canvas-grid') as HTMLElement | null
+        if (canvasGrid) {
+          canvasGrid.focus()
+        }
+      }
+    })
+  }
+
+  const safeCloseOrDeletePath = (targetPath: string) => {
+    const normalizedTarget = targetPath.replace(/\\/g, '/')
+    const targetFolderPrefix = normalizedTarget.endsWith('/') ? normalizedTarget : normalizedTarget + '/'
+
+    const remaining = openTabs.filter(
+      (t) => t.path !== normalizedTarget && !t.path.startsWith(targetFolderPrefix)
+    )
+
+    const isCurrentActiveClosed =
+      activePath === normalizedTarget ||
+      (activePath ? activePath.startsWith(targetFolderPrefix) : false)
+
+    setOpenTabs(remaining)
+
+    if (isCurrentActiveClosed) {
+      if (remaining.length > 0) {
+        const prevIndex = openTabs.findIndex((t) => t.id === activeTabId)
+        const nextIndex = Math.max(0, Math.min(prevIndex, remaining.length - 1))
+        handleSelectTab(remaining[nextIndex])
+      } else {
+        setActiveTabId('')
+        setActivePath(null)
+        setCanvasDoc(null)
+        setTextContent('')
+      }
+    }
+
+    requestAnimationFrame(() => {
+      const editor = window.document.querySelector('textarea[data-editor="true"]') as HTMLElement | null
+      if (editor) {
+        editor.focus()
+      } else {
+        const canvasGrid = window.document.querySelector('.canvas-grid') as HTMLElement | null
+        if (canvasGrid) {
+          canvasGrid.focus()
+        }
+      }
+    })
   }
 
   // Sidebar Resize Handler
@@ -323,6 +406,22 @@ export const App: React.FC = () => {
     try {
       const res = await window.electronAPI.invoke(IpcChannel.FILE_RENAME, { oldPath, newName })
       if (res.success && res.newPath) {
+        const confirmedNewPath = res.newPath
+        setOpenTabs((prev) =>
+          prev.map((t) => {
+            if (t.path === oldPath) {
+              return {
+                ...t,
+                path: confirmedNewPath,
+                title: newName.replace(/\.(canvas\.json|json|md|txt)$/, '')
+              }
+            }
+            return t
+          })
+        )
+        if (activePath === oldPath) {
+          setActivePath(confirmedNewPath)
+        }
         await refreshFiles()
       }
     } catch (err) {
@@ -333,10 +432,7 @@ export const App: React.FC = () => {
   const handleDeletePath = async (relativePath: string) => {
     try {
       await window.electronAPI.invoke(IpcChannel.FILE_DELETE, { relativePath })
-      setOpenTabs((prev) => prev.filter((t) => t.path !== relativePath))
-      if (activePath === relativePath) {
-        setActivePath(null)
-      }
+      safeCloseOrDeletePath(relativePath)
       await refreshFiles()
     } catch (err) {
       console.error('Delete failed:', err)
@@ -440,52 +536,224 @@ export const App: React.FC = () => {
     }
   }
 
+  const isIdle =
+    sessionCtx.state === 'IDLE' ||
+    sessionCtx.state === 'COMMITTED' ||
+    sessionCtx.state === 'TERMINATED_ABORT'
+  const isActive = sessionCtx.state === 'ACTIVE_FOCUS'
+
+  const formatSessionTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  }
+
   if (!workspacePath) {
     return <WorkspaceSelector onWorkspaceSelected={handleWorkspaceLoaded} />
   }
 
   return (
-    <div className="h-full w-full flex flex-col bg-[#09090b] text-[#f4f4f5] overflow-hidden select-none font-sans">
-      {/* Top Header */}
-      <SessionHeader
-        sessionContext={sessionCtx}
-        tasks={tasks}
-        onOpenKickoff={() => setKickoffOpen(true)}
-        onPauseSession={() => {
-          sessionManagerRef.current.pauseManual()
-          syncSessionState()
-        }}
-        onResumeSession={() => {
-          sessionManagerRef.current.resumeManual()
-          syncSessionState()
-        }}
-        onFinishSession={() => {
-          sessionManagerRef.current.promptFinish()
-          syncSessionState()
-          setEvaluationOpen(true)
-        }}
-        onToggleStatsHud={() => setStatsHudOpen((p) => !p)}
-        onToggleDrawer={() => setDrawerOpen((p) => !p)}
-        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-        onToggleTaskComplete={handleToggleTaskComplete}
-      />
+    <div className="h-full w-full flex flex-col bg-[#06070d] text-[#f4f4f5] overflow-hidden select-none font-sans">
+      {/* 34px Industrial Titlebar (Window Shell with Integrated Tabs & Session) */}
+      <header
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        className="h-[34px] bg-[#0a0c16] border-b border-[#422066] flex items-center justify-between px-2.5 z-30 select-none text-xs shrink-0 font-mono"
+      >
+        {/* Left: Branding & Session Status Chip */}
+        <div
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className="flex items-center gap-2 shrink-0"
+        >
+          <div className="font-semibold text-[#f4f4f5] flex items-center gap-1.5 pr-1">
+            <div className="w-4 h-4 rounded-[4px] bg-[#25143a] border border-[#422066] flex items-center justify-center text-[10px] font-black text-[#c084fc] shadow-sm">
+              C
+            </div>
+            <span className="text-[11px] font-bold tracking-tight text-[#f4f4f5]">CogniCanvas</span>
+          </div>
+
+          <div className="h-3.5 w-px bg-[#422066]" />
+
+          {/* Session Chip */}
+          {isIdle ? (
+            <button
+              onClick={() => setKickoffOpen(true)}
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-[4px] bg-[#101322] hover:bg-[#15182a] text-[#8b87a8] hover:text-[#c084fc] text-[10px] border border-[#422066] transition-all group"
+              title="Rozpocznij nową sesję skupienia"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+              <span>Sesja Skupienia</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-[4px] bg-[#101322] border border-[#422066] text-[10px] text-[#f4f4f5]">
+                <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-[#10b981] animate-pulse' : 'bg-[#eab308]'}`} />
+                <span className="font-bold text-[#c084fc]">{formatSessionTime(sessionCtx.effectiveFocusSeconds)}</span>
+                <span className="text-[9px] text-[#8b87a8]">/ {sessionCtx.plannedMinutes}m</span>
+              </div>
+
+              {isActive ? (
+                <button
+                  onClick={() => {
+                    sessionManagerRef.current.pauseManual()
+                    syncSessionState()
+                  }}
+                  className="p-1 rounded-[3px] hover:bg-[#15182a] text-[#8b87a8] hover:text-[#f4f4f5] transition-colors"
+                  title="Pauza"
+                >
+                  <Pause className="w-3 h-3" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    sessionManagerRef.current.resumeManual()
+                    syncSessionState()
+                  }}
+                  className="p-1 rounded-[3px] hover:bg-[#15182a] text-[#10b981] transition-colors"
+                  title="Wznów"
+                >
+                  <Play className="w-3 h-3 fill-current" />
+                </button>
+              )}
+
+              <button
+                onClick={() => {
+                  sessionManagerRef.current.promptFinish()
+                  syncSessionState()
+                  setEvaluationOpen(true)
+                }}
+                className="p-1 rounded-[3px] hover:bg-[#15182a] text-[#8b87a8] hover:text-[#fb7185] transition-colors"
+                title="Zakończ sesję"
+              >
+                <Square className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Center: Open Tabs */}
+        <div
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className="flex-1 flex items-center gap-1 mx-2 overflow-x-auto no-scrollbar"
+        >
+          {openTabs.map((tab) => {
+            const isActive = activeTabId === tab.id
+            return (
+              <div
+                key={tab.id}
+                onClick={() => handleSelectTab(tab)}
+                className={`h-[24px] px-2.5 rounded-[5px] flex items-center gap-1.5 cursor-pointer text-[10px] transition-all shrink-0 ${
+                  isActive
+                    ? 'bg-[#25143a] text-[#f8fafc] font-semibold border border-[#a855f7]/40 shadow-sm'
+                    : 'bg-[#101322] text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#15182a] border border-[#422066]'
+                }`}
+              >
+                {tab.type === 'canvas' ? (
+                  <LayoutGrid className="w-3 h-3 text-[#c084fc]" />
+                ) : tab.type === 'md' ? (
+                  <FileText className="w-3 h-3 text-[#a855f7]" />
+                ) : (
+                  <AlignLeft className="w-3 h-3 text-[#8b87a8]" />
+                )}
+                <span className="truncate max-w-[120px]">{tab.title}</span>
+                <button
+                  onClick={(e) => handleCloseTab(e, tab.id)}
+                  className="p-0.5 rounded-[3px] hover:bg-[#422066] text-[#8b87a8] hover:text-[#f8fafc] ml-0.5"
+                  title="Zamknij kartę"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            )
+          })}
+
+          {activeType === 'tasks' && (
+            <div className="h-[24px] px-2.5 rounded-[5px] flex items-center gap-1.5 text-[10px] bg-[#25143a] text-[#c084fc] font-semibold border border-[#a855f7]/40 shrink-0">
+              <CheckSquare className="w-3 h-3" />
+              <span>Zadania & Checklist</span>
+            </div>
+          )}
+
+          {activeType === 'graph' && (
+            <div className="h-[24px] px-2.5 rounded-[5px] flex items-center gap-1.5 text-[10px] bg-[#25143a] text-[#c084fc] font-semibold border border-[#a855f7]/40 shrink-0">
+              <Share2 className="w-3 h-3" />
+              <span>Graf Wiedzy</span>
+            </div>
+          )}
+
+          <button
+            onClick={() => handleRequestCreate('canvas')}
+            className="w-5 h-5 rounded-[4px] bg-[#101322] hover:bg-[#15182a] border border-[#422066] text-[#8b87a8] hover:text-[#c084fc] flex items-center justify-center transition-colors shrink-0 ml-0.5"
+            title="Utwórz nowy plik..."
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        </div>
+
+        {/* Right: Actions & Tools */}
+        <div
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className="flex items-center gap-1.5 shrink-0"
+        >
+          <button
+            onClick={() => setStatsHudOpen((p) => !p)}
+            className={`p-1 rounded-[4px] border transition-colors ${
+              statsHudOpen
+                ? 'bg-[#25143a] text-[#c084fc] border-[#a855f7]/40'
+                : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322] border-transparent'
+            }`}
+            title="Statystyki sesji (HUD)"
+          >
+            <BarChart2 className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            onClick={() => setDrawerOpen((p) => !p)}
+            className={`p-1 rounded-[4px] border transition-colors ${
+              drawerOpen
+                ? 'bg-[#25143a] text-[#c084fc] border-[#a855f7]/40'
+                : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322] border-transparent'
+            }`}
+            title="Panel zasobów & Backlinki"
+          >
+            <Layers className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            onClick={() => setCommandPaletteOpen(true)}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] bg-[#101322] border border-[#422066] text-[9px] text-[#8b87a8] hover:text-[#c084fc] hover:border-[#a855f7]/40 transition-colors"
+            title="Paleta poleceń (Ctrl+K)"
+          >
+            <Command className="w-2.5 h-2.5" />
+            <span>K</span>
+          </button>
+
+          <button
+            onClick={() => setConfigModalOpen(true)}
+            className="p-1 rounded-[4px] text-[#8b87a8] hover:text-[#c084fc] hover:bg-[#101322] transition-colors"
+            title="Ustawienia & Kolory (config.json)"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </header>
+
       {/* Main App Workspace Shell */}
-      <div className="flex-1 flex overflow-hidden relative bg-[#070913]">
+      <div className="flex-1 flex overflow-hidden relative bg-[#06070d]">
         {/* Extreme Left Activity Bar */}
-        <aside className="w-12 bg-[#070913] border-r border-[#28254c] flex flex-col items-center py-3 gap-2.5 shrink-0 z-10 select-none">
+        <aside className="w-12 bg-[#06070d] border-r border-[#422066] flex flex-col items-center py-2.5 gap-2 shrink-0 z-10 select-none">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            title="Drzewo plików (Ctrl+\)"
-            className={`p-2 rounded-xl transition-all ${
+            title="Drzewo plików (Ctrl+B)"
+            className={`p-2 rounded-[5px] transition-all ${
               sidebarOpen
-                ? 'bg-[#16142e] text-[#c084fc] shadow-md ring-1 ring-[#a855f7]/40'
-                : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+                ? 'bg-[#25143a] text-[#c084fc] shadow-sm border border-[#422066]'
+                : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322]'
             }`}
           >
             <FolderTree className="w-4 h-4" />
           </button>
 
-          <div className="w-6 h-px bg-[#28254c] my-1" />
+          <div className="w-6 h-px bg-[#422066] my-0.5" />
 
           <button
             onClick={() => {
@@ -496,10 +764,10 @@ export const App: React.FC = () => {
               setSidebarOpen(true)
             }}
             title="Tablice Canvas (Siatka)"
-            className={`p-2 rounded-xl transition-all ${
+            className={`p-2 rounded-[5px] transition-all ${
               activeType === 'canvas'
-                ? 'bg-[#16142e] text-[#c084fc] shadow-md ring-1 ring-[#a855f7]/40'
-                : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+                ? 'bg-[#25143a] text-[#c084fc] shadow-sm border border-[#422066]'
+                : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322]'
             }`}
           >
             <LayoutGrid className="w-4 h-4" />
@@ -508,10 +776,10 @@ export const App: React.FC = () => {
           <button
             onClick={() => setActiveType('graph')}
             title="Graf Wiedzy (Graph View)"
-            className={`p-2 rounded-xl transition-all ${
+            className={`p-2 rounded-[5px] transition-all ${
               activeType === 'graph'
-                ? 'bg-[#16142e] text-[#818cf8] shadow-md ring-1 ring-[#818cf8]/40'
-                : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+                ? 'bg-[#25143a] text-[#c084fc] shadow-sm border border-[#422066]'
+                : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322]'
             }`}
           >
             <Share2 className="w-4 h-4" />
@@ -520,21 +788,21 @@ export const App: React.FC = () => {
           <button
             onClick={() => setActiveType('tasks')}
             title="Zadania & Checklist (To-Do)"
-            className={`p-2 rounded-xl transition-all ${
+            className={`p-2 rounded-[5px] transition-all ${
               activeType === 'tasks'
-                ? 'bg-[#16142e] text-[#c084fc] shadow-md ring-1 ring-[#a855f7]/40'
-                : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f1123]'
+                ? 'bg-[#25143a] text-[#c084fc] shadow-sm border border-[#422066]'
+                : 'text-[#8b87a8] hover:text-[#f8fafc] hover:bg-[#101322]'
             }`}
           >
             <CheckSquare className="w-4 h-4" />
           </button>
 
-          <div className="w-6 h-px bg-[#28254c] my-1" />
+          <div className="w-6 h-px bg-[#422066] my-0.5" />
 
           <button
             onClick={() => setReviewRunnerOpen(true)}
             title="Powtórki SRS (#review)"
-            className="p-2 rounded-xl text-[#94a3b8] hover:text-[#c084fc] hover:bg-[#0f1123] transition-all"
+            className="p-2 rounded-[5px] text-[#8b87a8] hover:text-[#c084fc] hover:bg-[#101322] transition-all"
           >
             <BookOpen className="w-4 h-4" />
           </button>
@@ -542,7 +810,7 @@ export const App: React.FC = () => {
           <button
             onClick={() => setAnalyticsModalOpen(true)}
             title="Analityka Skupienia (#stats)"
-            className="p-2 rounded-xl text-[#94a3b8] hover:text-[#818cf8] hover:bg-[#0f1123] transition-all"
+            className="p-2 rounded-[5px] text-[#8b87a8] hover:text-[#c084fc] hover:bg-[#101322] transition-all"
           >
             <BarChart2 className="w-4 h-4" />
           </button>
@@ -550,7 +818,7 @@ export const App: React.FC = () => {
 
         {/* File Sidebar (collapsible & resizable) */}
         {sidebarOpen && (
-          <div style={{ width: `${sidebarWidth}px` }} className="h-full relative shrink-0">
+          <div style={{ width: `${sidebarWidth}px` }} className="h-full relative shrink-0 border-r border-[#422066]">
             <FileSidebar
               workspacePath={workspacePath}
               fileTree={fileTree}
@@ -570,61 +838,14 @@ export const App: React.FC = () => {
             {/* Sidebar Resizer Splitter */}
             <div
               onMouseDown={handleSidebarMouseDown}
-              className="w-1.5 h-full bg-transparent hover:bg-[#a855f7]/40 cursor-ew-resize absolute top-0 right-0 z-30 transition-colors"
+              className="w-1.5 h-full bg-transparent hover:bg-[#a855f7]/50 cursor-ew-resize absolute top-0 right-0 z-30 transition-colors"
               title="Przeciągnij, aby zmienić szerokość"
             />
           </div>
         )}
 
         {/* Center Main Work Area */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#070913] relative">
-          {/* Tabs Bar */}
-          <div className="h-9 bg-[#0f1123] border-b border-[#28254c] flex items-center px-1.5 overflow-x-auto no-scrollbar gap-1 text-xs shrink-0">
-            {openTabs.map((tab) => {
-              const isActive = activeTabId === tab.id
-              return (
-                <div
-                  key={tab.id}
-                  onClick={() => handleSelectTab(tab)}
-                  className={`h-7 px-3 rounded-lg flex items-center gap-2 cursor-pointer text-[11px] transition-all ${
-                    isActive
-                      ? 'bg-[#16142e] text-[#f8fafc] font-semibold border border-[#a855f7]/40 shadow-sm'
-                      : 'text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#16142e]'
-                  }`}
-                >
-                  {tab.type === 'canvas' ? (
-                    <LayoutGrid className="w-3.5 h-3.5 text-[#c084fc]" />
-                  ) : tab.type === 'md' ? (
-                    <FileText className="w-3.5 h-3.5 text-[#818cf8]" />
-                  ) : (
-                    <AlignLeft className="w-3.5 h-3.5 text-[#a855f7]" />
-                  )}
-                  <span className="truncate max-w-[140px]">{tab.title}</span>
-                  <button
-                    onClick={(e) => handleCloseTab(e, tab.id)}
-                    className="p-0.5 rounded hover:bg-[#28254c] text-[#94a3b8] hover:text-[#f8fafc]"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              )
-            })}
-
-            {activeType === 'tasks' && (
-              <div className="h-7 px-3 rounded-lg flex items-center gap-2 text-[11px] bg-[#16142e] text-[#c084fc] font-semibold border border-[#a855f7]/40">
-                <CheckSquare className="w-3.5 h-3.5" />
-                <span>Zadania & Checklist</span>
-              </div>
-            )}
-
-            {activeType === 'graph' && (
-              <div className="h-7 px-3 rounded-lg flex items-center gap-2 text-[11px] bg-[#16142e] text-[#818cf8] font-semibold border border-[#818cf8]/40">
-                <Share2 className="w-3.5 h-3.5" />
-                <span>Graf Wiedzy</span>
-              </div>
-            )}
-          </div>
-
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#06070d] relative">
           {/* Main Viewport Content Area */}
           <main className="flex-1 h-full overflow-hidden relative">
             {activeType === 'tasks' ? (
@@ -732,6 +953,13 @@ export const App: React.FC = () => {
           }}
         />
       </div>
+
+      {/* 24px Bottom Status Bar */}
+      <BottomStatusBar
+        activePath={activePath}
+        activeType={activeType}
+        onExecuteCommand={handleExecuteCommand}
+      />
 
       {/* In-App Create File / Folder Dialog */}
       <CreateFileDialog
